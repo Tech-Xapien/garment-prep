@@ -36,6 +36,13 @@ CALLBACK_BACKOFF_BASE = float(os.getenv("CALLBACK_BACKOFF_BASE", "1.0"))   # sec
 CALLBACK_BACKOFF_MAX = float(os.getenv("CALLBACK_BACKOFF_MAX", "16.0"))    # cap
 CALLBACK_TIMEOUT = float(os.getenv("CALLBACK_TIMEOUT", "30.0"))            # per-request
 
+# ── Canvas / Output ──────────────────────────────────────────────────
+CANVAS_WIDTH = int(os.getenv("CANVAS_WIDTH", "768"))
+CANVAS_HEIGHT = int(os.getenv("CANVAS_HEIGHT", "1024"))
+
+# ── Image download ───────────────────────────────────────────────────
+IMAGE_DOWNLOAD_TIMEOUT = float(os.getenv("IMAGE_DOWNLOAD_TIMEOUT", "30.0"))
+
 # ── Queue / Workers ──────────────────────────────────────────────────
 INFERENCE_WORKERS = int(os.getenv("INFERENCE_WORKERS", "2"))   # process pool size
 QUEUE_WORKERS = int(os.getenv("QUEUE_WORKERS", "4"))           # async consumers

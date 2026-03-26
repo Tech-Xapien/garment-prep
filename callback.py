@@ -53,9 +53,7 @@ async def close_client() -> None:
 async def deliver(
     *,
     callback_url: str,
-    user_id: str,
-    job_id: str,
-    provider: str,
+    garment_id: str | None,
     garment_png: bytes,
 ) -> bool:
     """POST the processed garment image to the upstream callback URL.
@@ -73,36 +71,39 @@ async def deliver(
                 headers=headers,
                 files={
                     "garment_file": (
-                        f"{job_id}.png",
+                        f"{garment_id or 'garment'}.png",
                         garment_png,
                         "image/png",
                     ),
                 },
                 data={
-                    "user_id": user_id,
-                    "job_id": job_id,
-                    "provider": provider,
+                    k: v for k, v in {"garment_id": garment_id}.items() if v
                 },
             )
 
-            if resp.status_code < 400:
-                logger.info(
-                    "Callback success job_id=%s status=%d attempt=%d",
-                    job_id, resp.status_code, attempt,
-                )
-                return True
+            # Only 200 + {"status": "ok"} is treated as success
+            if resp.status_code == 200:
+                try:
+                    body = resp.json()
+                except Exception:
+                    body = {}
+                if body.get("status") == "ok":
+                    logger.info(
+                        "Callback success garment_id=%s attempt=%d",
+                        garment_id, attempt,
+                    )
+                    return True
 
-            # Server returned an error — log and retry
             logger.warning(
-                "Callback HTTP %d job_id=%s attempt=%d/%d body=%s",
-                resp.status_code, job_id, attempt, CALLBACK_MAX_RETRIES,
+                "Callback not accepted garment_id=%s status=%d attempt=%d/%d body=%s",
+                garment_id, resp.status_code, attempt, CALLBACK_MAX_RETRIES,
                 resp.text[:200],
             )
 
         except httpx.HTTPError as exc:
             logger.warning(
-                "Callback network error job_id=%s attempt=%d/%d error=%s",
-                job_id, attempt, CALLBACK_MAX_RETRIES, exc,
+                "Callback network error garment_id=%s attempt=%d/%d error=%s",
+                garment_id, attempt, CALLBACK_MAX_RETRIES, exc,
             )
 
         # Exponential back-off with full jitter
@@ -112,13 +113,12 @@ async def deliver(
                 CALLBACK_BACKOFF_MAX,
             )
             delay *= random.uniform(0.5, 1.0)
-            logger.info("Retrying job_id=%s in %.1fs …", job_id, delay)
+            logger.info("Retrying garment_id=%s in %.1fs …", garment_id, delay)
             await asyncio.sleep(delay)
 
     # All retries exhausted — dead-letter log
     logger.error(
-        "DEAD_LETTER job_id=%s user_id=%s provider=%s url=%s — "
-        "all %d retries exhausted",
-        job_id, user_id, provider, callback_url, CALLBACK_MAX_RETRIES,
+        "DEAD_LETTER garment_id=%s url=%s — all %d retries exhausted",
+        garment_id, callback_url, CALLBACK_MAX_RETRIES,
     )
     return False

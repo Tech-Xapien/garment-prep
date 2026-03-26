@@ -86,7 +86,7 @@ async def _consumer(name: str) -> None:
                 return
             continue
 
-        logger.info("Consumer %s picked job_id=%s", name, job.job_id)
+        logger.info("Consumer %s picked garment_id=%s", name, job.garment_id)
 
         try:
             png_bytes: bytes = await loop.run_in_executor(
@@ -96,19 +96,17 @@ async def _consumer(name: str) -> None:
 
             ok = await deliver(
                 callback_url=job.callback_url,
-                user_id=job.user_id,
-                job_id=job.job_id,
-                provider=job.provider,
+                garment_id=job.garment_id,
                 garment_png=png_bytes,
             )
 
             if ok:
-                logger.info("Job %s completed and delivered.", job.job_id)
+                logger.info("Job %s completed and delivered.", job.garment_id)
             else:
-                logger.error("Job %s processed but delivery failed.", job.job_id)
+                logger.error("Job %s processed but delivery failed.", job.garment_id)
 
         except Exception:
-            logger.exception("Job %s failed during processing.", job.job_id)
+            logger.exception("Job %s failed during processing.", job.garment_id)
 
         finally:
             _queue.task_done()

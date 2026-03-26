@@ -13,13 +13,15 @@ import sys
 from contextlib import asynccontextmanager
 from functools import partial
 
+import httpx
 import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from pydantic import BaseModel
 from fastapi.responses import Response
 from PIL import Image, ImageCms, ImageOps
 
 import queue_worker
-from config import CALLBACK_URL, INFERENCE_WORKERS
+from config import CALLBACK_URL, INFERENCE_WORKERS, IMAGE_DOWNLOAD_TIMEOUT
 from pipelines import full, garment
 from schemas import (
     HealthResponse,
@@ -102,27 +104,35 @@ def _process(
 
 
 # ── POST /infer — async queue + callback ─────────────────────────────
+
+class InferRequest(BaseModel):
+    garment_id: str | None = None
+    image_url: str
+    pipeline_type: PipelineType
+    callback_url: str | None = None
+
+
 @app.post("/infer", response_model=InferResponse)
-async def infer(
-    image: UploadFile = File(..., description="Input image (JPEG/PNG/WebP)"),
-    user_id: str = Form(..., description="Caller user ID"),
-    job_id: str = Form(..., description="Unique job identifier"),
-    provider: str = Form(..., description="Provider identifier"),
-    pipeline_type: PipelineType = Form(
-        ..., description="Pipeline: full | upper | lower",
-    ),
-    callback_url: str | None = Form(
-        None, description="Override callback URL",
-    ),
-):
-    """Accept an image for async preprocessing.
+async def infer(body: InferRequest):
+    """Accept a garment image URL for async preprocessing.
 
     Returns immediately with job status.  The processed garment image is
     delivered to the callback URL as multipart/form-data upon completion.
     """
-    raw = await image.read()
+    # Download image from URL
+    try:
+        async with httpx.AsyncClient(timeout=IMAGE_DOWNLOAD_TIMEOUT) as client:
+            resp = await client.get(body.image_url)
+            resp.raise_for_status()
+            raw = resp.content
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to download image from URL: {exc}",
+        )
+
     if not raw:
-        raise HTTPException(status_code=400, detail="Empty image payload.")
+        raise HTTPException(status_code=400, detail="Empty image at URL.")
 
     # Validate the image is decodable before queuing
     try:
@@ -132,11 +142,9 @@ async def infer(
         raise HTTPException(status_code=400, detail="Invalid or corrupt image.")
 
     job = JobPayload(
-        user_id=user_id,
-        job_id=job_id,
-        provider=provider,
-        pipeline_type=pipeline_type.value,
-        callback_url=callback_url or CALLBACK_URL,
+        garment_id=body.garment_id,
+        pipeline_type=body.pipeline_type.value,
+        callback_url=body.callback_url or CALLBACK_URL,
         image_bytes=raw,
     )
 
@@ -147,9 +155,12 @@ async def infer(
             detail="Queue full — try again shortly.",
         )
 
-    logger.info("Job queued job_id=%s user_id=%s type=%s", job_id, user_id, pipeline_type.value)
+    logger.info(
+        "Job queued garment_id=%s type=%s",
+        body.garment_id, body.pipeline_type.value,
+    )
 
-    return InferResponse(job_id=job_id)
+    return InferResponse(garment_id=body.garment_id)
 
 
 # ── POST /preprocess — legacy sync endpoint (backward compat) ────────
