@@ -19,11 +19,6 @@ if [[ -z "${AWS_ACCESS_KEY_ID:-}" || -z "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
     exit 1
 fi
 
-if ! command -v aws &>/dev/null; then
-    echo "ERROR: aws CLI not found. Install it first."
-    exit 1
-fi
-
 # ── 1. Verify Python 3.10 ───────────────────────────────────────────
 if ! command -v "$PYTHON_BASE" &>/dev/null; then
     echo "ERROR: $PYTHON_BASE not found. Install Python 3.10 first."
@@ -53,12 +48,19 @@ $PYTHON -m pip install --quiet --upgrade \
     fashn-human-parser \
     pillow \
     numpy \
-    httpx
+    httpx \
+    awscli
+
+AWS_BIN="$VENV_DIR/bin/aws"
+if ! "$AWS_BIN" --version &>/dev/null; then
+    echo "ERROR: awscli failed to install into venv at $AWS_BIN"
+    exit 1
+fi
 
 # ── 4. Download models from S3 ──────────────────────────────────────
 mkdir -p "$MODEL_DIR"
 echo "[4/5] Downloading models from s3://$S3_BUCKET/$S3_PREFIX/ ..."
-AWS_DEFAULT_REGION="$AWS_REGION" aws s3 sync \
+AWS_DEFAULT_REGION="$AWS_REGION" "$AWS_BIN" s3 sync \
     "s3://$S3_BUCKET/$S3_PREFIX/" "$MODEL_DIR/" \
     --no-progress
 echo "  Models downloaded to $MODEL_DIR"
