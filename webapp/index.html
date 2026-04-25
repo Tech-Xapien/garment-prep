@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Garment-Prep Tester</title>
+<style>
+  :root {
+    --bg: #0f1216;
+    --panel: #171b22;
+    --panel-2: #1f242d;
+    --border: #2a313c;
+    --text: #e6e9ef;
+    --muted: #8a93a2;
+    --accent: #4f8cff;
+    --accent-hover: #3a78f0;
+    --success: #3fb984;
+    --error: #ef4b4b;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+  header {
+    padding: 20px 28px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header h1 {
+    font-size: 18px;
+    margin: 0;
+    font-weight: 600;
+  }
+  header .status {
+    font-size: 13px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  header .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--muted);
+  }
+  header .dot.ok   { background: var(--success); }
+  header .dot.err  { background: var(--error); }
+  main {
+    padding: 24px 28px;
+    max-width: 1280px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    gap: 24px;
+  }
+  @media (max-width: 900px) {
+    main { grid-template-columns: 1fr; }
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+  }
+  .panel h2 {
+    font-size: 14px;
+    margin: 0 0 16px 0;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  label {
+    display: block;
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .dropzone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 30px 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.15s;
+    background: var(--panel-2);
+  }
+  .dropzone:hover, .dropzone.drag {
+    border-color: var(--accent);
+    background: #1c2634;
+  }
+  .dropzone p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .dropzone .hint { font-size: 12px; margin-top: 6px; }
+  input[type="file"] { display: none; }
+  select {
+    width: 100%;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px 12px;
+    border-radius: var(--radius);
+    font-size: 14px;
+    outline: none;
+  }
+  select:focus { border-color: var(--accent); }
+  .row { margin-bottom: 16px; }
+  button {
+    width: 100%;
+    padding: 12px 16px;
+    border: none;
+    border-radius: var(--radius);
+    background: var(--accent);
+    color: white;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  button:hover:not(:disabled) { background: var(--accent-hover); }
+  button:disabled {
+    background: #2a313c;
+    color: var(--muted);
+    cursor: not-allowed;
+  }
+  button.secondary {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+  button.secondary:hover:not(:disabled) {
+    background: var(--panel-2);
+  }
+  .btn-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+  }
+  .image-panel {
+    min-height: 400px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 700px) {
+    .image-panel { grid-template-columns: 1fr; }
+  }
+  .image-box {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+  }
+  .image-box .title {
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .image-box .canvas-area {
+    flex: 1;
+    min-height: 320px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background:
+      linear-gradient(45deg, #15191f 25%, transparent 25%),
+      linear-gradient(-45deg, #15191f 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #15191f 75%),
+      linear-gradient(-45deg, transparent 75%, #15191f 75%);
+    background-size: 20px 20px;
+    background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+    background-color: #0c0e12;
+    border-radius: 8px;
+    overflow: hidden;
+    position: relative;
+  }
+  .image-box img {
+    max-width: 100%;
+    max-height: 60vh;
+    object-fit: contain;
+    display: block;
+  }
+  .placeholder {
+    color: var(--muted);
+    font-size: 13px;
+    text-align: center;
+    padding: 30px;
+  }
+  .spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid rgba(255,255,255,0.1);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    padding: 12px 18px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: 13px;
+    z-index: 10;
+    max-width: 360px;
+  }
+  .toast.error { border-color: var(--error); }
+  .toast.ok    { border-color: var(--success); }
+  .meta {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 8px;
+    line-height: 1.5;
+  }
+  .file-name {
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--muted);
+    word-break: break-all;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Garment-Prep Tester</h1>
+  <div class="status" id="status">
+    <span class="dot"></span>
+    <span id="status-text">checking server…</span>
+  </div>
+</header>
+
+<main>
+  <section class="panel">
+    <h2>Input</h2>
+
+    <div class="row">
+      <label>Image</label>
+      <div class="dropzone" id="dropzone">
+        <p><strong>Click or drop</strong> an image here</p>
+        <p class="hint">JPEG, PNG, or WebP</p>
+      </div>
+      <input type="file" id="file" accept="image/jpeg,image/png,image/webp" />
+      <div class="file-name" id="file-name"></div>
+    </div>
+
+    <div class="row">
+      <label for="type">Pipeline Type</label>
+      <select id="type">
+        <option value="full">full</option>
+        <option value="upper">upper</option>
+        <option value="lower">lower</option>
+        <option value="layered">layered</option>
+      </select>
+    </div>
+
+    <button id="run" disabled>Run Preprocess</button>
+    <div class="btn-row">
+      <button class="secondary" id="reset">Reset</button>
+      <button class="secondary" id="download" disabled>Download</button>
+    </div>
+
+    <p class="meta">
+      POSTs <code>multipart/form-data</code> to <code>/preprocess</code>.
+      The server must be started with <code>TEST_MODE=1</code>
+      (e.g. <code>./setup.sh --test</code>).
+    </p>
+  </section>
+
+  <section class="panel">
+    <h2>Result</h2>
+    <div class="image-panel">
+      <div class="image-box">
+        <div class="title">Input</div>
+        <div class="canvas-area" id="in-area">
+          <div class="placeholder">No image selected</div>
+        </div>
+      </div>
+      <div class="image-box">
+        <div class="title">Output</div>
+        <div class="canvas-area" id="out-area">
+          <div class="placeholder">Result will appear here</div>
+        </div>
+      </div>
+    </div>
+    <p class="meta" id="timing"></p>
+  </section>
+</main>
+
+<div class="toast" id="toast" style="display:none;"></div>
+
+<script>
+(function () {
+  const API_BASE = window.location.origin; // same origin as FastAPI
+
+  const $ = (id) => document.getElementById(id);
+  const fileInput = $('file');
+  const dropzone  = $('dropzone');
+  const typeSel   = $('type');
+  const runBtn    = $('run');
+  const resetBtn  = $('reset');
+  const dlBtn     = $('download');
+  const inArea    = $('in-area');
+  const outArea   = $('out-area');
+  const fileName  = $('file-name');
+  const timing    = $('timing');
+  const toast     = $('toast');
+  const statusDot = document.querySelector('#status .dot');
+  const statusTxt = $('status-text');
+
+  let currentFile = null;
+  let resultBlob  = null;
+  let resultUrl   = null;
+
+  // ── Server health check ─────────────────────────────────────────
+  async function checkHealth() {
+    try {
+      const r = await fetch(API_BASE + '/health');
+      if (!r.ok) throw new Error('bad status');
+      const d = await r.json();
+      statusDot.classList.add('ok');
+      statusTxt.textContent =
+        `online · models=${d.models_loaded} · queue=${d.queue_depth}`;
+    } catch (e) {
+      statusDot.classList.add('err');
+      statusTxt.textContent = 'offline';
+    }
+  }
+  checkHealth();
+
+  // ── Toast ───────────────────────────────────────────────────────
+  function showToast(msg, kind) {
+    toast.className = 'toast ' + (kind || '');
+    toast.textContent = msg;
+    toast.style.display = 'block';
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => (toast.style.display = 'none'), 4000);
+  }
+
+  // ── File handling ───────────────────────────────────────────────
+  function setFile(f) {
+    currentFile = f;
+    fileName.textContent = f ? `${f.name} · ${(f.size / 1024).toFixed(1)} KB` : '';
+    runBtn.disabled = !f;
+    inArea.innerHTML = '';
+    if (!f) {
+      inArea.innerHTML = '<div class="placeholder">No image selected</div>';
+      return;
+    }
+    const img = new Image();
+    img.onload = () => URL.revokeObjectURL(img.src);
+    img.src = URL.createObjectURL(f);
+    inArea.appendChild(img);
+  }
+
+  dropzone.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', (e) => {
+    const f = e.target.files[0];
+    if (f) setFile(f);
+  });
+  ['dragenter', 'dragover'].forEach((ev) =>
+    dropzone.addEventListener(ev, (e) => {
+      e.preventDefault();
+      dropzone.classList.add('drag');
+    })
+  );
+  ['dragleave', 'drop'].forEach((ev) =>
+    dropzone.addEventListener(ev, (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('drag');
+    })
+  );
+  dropzone.addEventListener('drop', (e) => {
+    const f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) setFile(f);
+  });
+
+  // ── Reset ───────────────────────────────────────────────────────
+  resetBtn.addEventListener('click', () => {
+    setFile(null);
+    fileInput.value = '';
+    clearResult();
+    timing.textContent = '';
+  });
+
+  function clearResult() {
+    if (resultUrl) URL.revokeObjectURL(resultUrl);
+    resultUrl = null;
+    resultBlob = null;
+    dlBtn.disabled = true;
+    outArea.innerHTML = '<div class="placeholder">Result will appear here</div>';
+  }
+
+  // ── Run ─────────────────────────────────────────────────────────
+  runBtn.addEventListener('click', async () => {
+    if (!currentFile) return;
+    runBtn.disabled = true;
+    resetBtn.disabled = true;
+    dlBtn.disabled = true;
+    clearResult();
+    outArea.innerHTML = '<div class="spinner"></div>';
+    timing.textContent = '';
+
+    const fd = new FormData();
+    fd.append('image', currentFile);
+    fd.append('type', typeSel.value);
+
+    const t0 = performance.now();
+    try {
+      const r = await fetch(API_BASE + '/preprocess', {
+        method: 'POST',
+        body: fd,
+      });
+      if (!r.ok) {
+        let detail = `HTTP ${r.status}`;
+        try {
+          const body = await r.json();
+          if (body.detail) detail = body.detail;
+        } catch (_) { /* ignore */ }
+        throw new Error(detail);
+      }
+      const blob = await r.blob();
+      const elapsed = ((performance.now() - t0) / 1000).toFixed(2);
+      resultBlob = blob;
+      resultUrl  = URL.createObjectURL(blob);
+      const img = new Image();
+      img.src = resultUrl;
+      outArea.innerHTML = '';
+      outArea.appendChild(img);
+      dlBtn.disabled = false;
+      timing.textContent =
+        `Done in ${elapsed}s · ${(blob.size / 1024).toFixed(1)} KB · ${blob.type}`;
+      showToast('Preprocess complete', 'ok');
+    } catch (err) {
+      outArea.innerHTML =
+        `<div class="placeholder" style="color:var(--error)">${err.message}</div>`;
+      showToast('Failed: ' + err.message, 'error');
+    } finally {
+      runBtn.disabled = false;
+      resetBtn.disabled = false;
+    }
+  });
+
+  // ── Download ────────────────────────────────────────────────────
+  dlBtn.addEventListener('click', () => {
+    if (!resultBlob) return;
+    const a = document.createElement('a');
+    a.href = resultUrl;
+    const base = currentFile ? currentFile.name.replace(/\.[^.]+$/, '') : 'result';
+    a.download = `${base}_${typeSel.value}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  });
+})();
+</script>
+</body>
+</html>

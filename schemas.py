@@ -10,6 +10,7 @@ class PipelineType(str, Enum):
     full = "full"
     upper = "upper"
     lower = "lower"
+    layered = "layered"
 
 
 # ── /infer immediate response ────────────────────────────────────────

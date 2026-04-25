@@ -28,7 +28,7 @@ WORKERS = int(os.getenv("WORKERS", "1"))
 # ── Callback ─────────────────────────────────────────────────────────
 CALLBACK_URL = os.getenv(
     "CALLBACK_URL",
-    "https://apiprod.xapien.in:9002/v1/garment/upload",
+    "http://35.154.214.159:9009/v1/garment/upload",
 )
 CALLBACK_AUTH_TOKEN = os.getenv("CALLBACK_AUTH_TOKEN", "supersecret-internal-token")
 CALLBACK_MAX_RETRIES = int(os.getenv("CALLBACK_MAX_RETRIES", "5"))
@@ -43,7 +43,11 @@ CANVAS_HEIGHT = int(os.getenv("CANVAS_HEIGHT", "1024"))
 # ── Image download ───────────────────────────────────────────────────
 IMAGE_DOWNLOAD_TIMEOUT = float(os.getenv("IMAGE_DOWNLOAD_TIMEOUT", "30.0"))
 
+# Prepended when /infer receives an image_url without an http(s):// scheme.
+# e.g. "https://s3.ap-south-1.amazonaws.com" turns "bucket/key.jpg" into a full URL.
+IMAGE_URL_BASE = os.getenv("IMAGE_URL_BASE", "").rstrip("/")
+
 # ── Queue / Workers ──────────────────────────────────────────────────
-INFERENCE_WORKERS = int(os.getenv("INFERENCE_WORKERS", "2"))   # process pool size
+INFERENCE_WORKERS = int(os.getenv("INFERENCE_WORKERS", "1"))   # process pool size
 QUEUE_WORKERS = int(os.getenv("QUEUE_WORKERS", "4"))           # async consumers
 QUEUE_SIZE = int(os.getenv("QUEUE_SIZE", "100"))               # max pending jobs

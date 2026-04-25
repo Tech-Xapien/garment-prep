@@ -87,7 +87,7 @@ async def deliver(
                     body = resp.json()
                 except Exception:
                     body = {}
-                if body.get("status") == "ok":
+                if body.get("status") in ("ok", "success"):
                     logger.info(
                         "Callback success garment_id=%s attempt=%d",
                         garment_id, attempt,

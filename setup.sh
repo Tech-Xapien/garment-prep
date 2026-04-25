@@ -76,10 +76,26 @@ echo "=== Setup complete ==="
 echo ""
 
 # ── Optional: start server ──────────────────────────────────────────
-if [[ "${1:-}" == "--start" ]]; then
+START=false
+TEST=false
+for arg in "$@"; do
+    case "$arg" in
+        --start) START=true ;;
+        --test)  TEST=true ;;
+    esac
+done
+
+if $START || $TEST; then
     HOST="${HOST:-0.0.0.0}"
     PORT="${PORT:-8000}"
-    echo "Starting Garment-Prep Service on $HOST:$PORT ..."
+
+    if $TEST; then
+        export TEST_MODE=1
+        echo "Starting Garment-Prep Service on $HOST:$PORT (TEST_MODE — /preprocess enabled) ..."
+    else
+        echo "Starting Garment-Prep Service on $HOST:$PORT ..."
+    fi
+
     exec "$PYTHON" -m uvicorn main:app \
         --host "$HOST" \
         --port "$PORT" \
@@ -88,6 +104,7 @@ else
     echo "To start the server:"
     echo "  source $VENV_DIR/bin/activate && cd $SCRIPT_DIR && python -m uvicorn main:app --host 0.0.0.0 --port 8000"
     echo ""
-    echo "Or re-run with --start:"
-    echo "  ./setup.sh --start"
+    echo "Or re-run with:"
+    echo "  ./setup.sh --start        # /infer only (production)"
+    echo "  ./setup.sh --test         # /infer + /preprocess (testing)"
 fi

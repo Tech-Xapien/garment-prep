@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
 from typing import Optional
@@ -59,7 +60,7 @@ def _run_inference(image_bytes: bytes, pipeline_type: str) -> bytes:
     backend = get_backend()
     image_rgb = _decode(image_bytes)
 
-    if pipeline_type == "full":
+    if pipeline_type in ("full", "layered"):
         result = full.run(image_rgb, backend.face)
     else:
         result = garment.run(
@@ -126,6 +127,13 @@ async def enqueue(job: JobPayload) -> bool:
         return False
 
 
+def _warmup_noop() -> bool:
+    """No-op task submitted to each pool worker to force process creation + model load."""
+    from inference.local import get_backend
+    get_backend()
+    return True
+
+
 async def start() -> None:
     """Spin up the process pool and consumer tasks."""
     global _queue, _pool, _shutdown_event  # noqa: PLW0603
@@ -136,8 +144,18 @@ async def start() -> None:
     _queue = asyncio.Queue(maxsize=QUEUE_SIZE)
     _pool = ProcessPoolExecutor(
         max_workers=INFERENCE_WORKERS,
+        mp_context=multiprocessing.get_context("spawn"),
         initializer=init_worker,
     )
+
+    # Force all worker processes to spawn now so models are hot
+    loop = asyncio.get_running_loop()
+    warmup_futs = [
+        loop.run_in_executor(_pool, _warmup_noop)
+        for _ in range(INFERENCE_WORKERS)
+    ]
+    await asyncio.gather(*warmup_futs)
+    logger.info("All %d inference workers warmed up.", INFERENCE_WORKERS)
 
     for i in range(QUEUE_WORKERS):
         task = asyncio.create_task(_consumer(f"worker-{i}"))
