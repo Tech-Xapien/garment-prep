@@ -49,6 +49,7 @@ $PYTHON -m pip install --quiet --upgrade \
     pillow \
     numpy \
     httpx \
+    ultralytics \
     awscli
 
 AWS_BIN="$VENV_DIR/bin/aws"
