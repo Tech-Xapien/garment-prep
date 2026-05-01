@@ -27,10 +27,15 @@ fi
 echo "[1/5] Python: $($PYTHON_BASE --version)"
 
 # ── 2. Create virtual environment ───────────────────────────────────
-if [ -d "$VENV_DIR" ]; then
+if [ -f "$VENV_DIR/bin/activate" ]; then
     echo "[2/5] Virtual environment already exists."
 else
-    echo "[2/5] Creating virtual environment..."
+    if [ -d "$VENV_DIR" ]; then
+        echo "[2/5] Removing incomplete virtual environment and recreating..."
+        rm -rf "$VENV_DIR"
+    else
+        echo "[2/5] Creating virtual environment..."
+    fi
     $PYTHON_BASE -m venv "$VENV_DIR"
 fi
 # shellcheck source=/dev/null
