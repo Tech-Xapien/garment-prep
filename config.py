@@ -28,7 +28,7 @@ WORKERS = int(os.getenv("WORKERS", "1"))
 # ── Callback ─────────────────────────────────────────────────────────
 CALLBACK_URL = os.getenv(
     "CALLBACK_URL",
-    "http://52.66.239.77:13751/v1/garment/upload",
+    "http://52.66.239.77:9009/v1/garment/upload",
 )
 CALLBACK_AUTH_TOKEN = os.getenv("CALLBACK_AUTH_TOKEN", "supersecret-internal-token")
 CALLBACK_MAX_RETRIES = int(os.getenv("CALLBACK_MAX_RETRIES", "5"))
