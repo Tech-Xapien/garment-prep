@@ -51,6 +51,7 @@ def bbox_crop_with_padding(
     padding_ratio: float = 0.0,
     extend_to_bottom: bool = False,
     bottom_margin_ratio: float = 0.05,
+    y_max_cap: int | None = None,
 ) -> np.ndarray | None:
     """Crop to the bounding box of target label pixels with padding.
 
@@ -59,10 +60,13 @@ def bbox_crop_with_padding(
         mask: Segmentation map (H, W) with class IDs.
         target_labels: List of label IDs to include.
         padding_ratio: Fraction of bbox dimensions to pad on each side.
-        extend_to_bottom: If True, extend y_max to the bottom of the image
-            minus bottom_margin_ratio (used for upper garments).
+        extend_to_bottom: If True, extend y_max toward the bottom of the image
+            (capped by y_max_cap if provided, otherwise bottom_margin_ratio).
         bottom_margin_ratio: Fraction of image height to leave as margin
-            at the bottom when extend_to_bottom is True.
+            at the bottom when extend_to_bottom is True and y_max_cap is None.
+        y_max_cap: Hard upper bound on y_max (pixel row, exclusive).
+            When set, overrides the extend_to_bottom default so the crop
+            stops before the capped region (e.g. feet / footwear).
 
     Returns:
         Cropped image or None if no target pixels found.
@@ -85,7 +89,8 @@ def bbox_crop_with_padding(
     x_max = min(w, x_max + pad_x)
 
     if extend_to_bottom:
-        y_max = int(h * (1 - bottom_margin_ratio))
+        natural_bottom = int(h * (1 - bottom_margin_ratio))
+        y_max = min(y_max_cap, natural_bottom) if y_max_cap is not None else natural_bottom
     else:
         y_max = min(h, y_max + pad_y)
 

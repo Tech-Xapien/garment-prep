@@ -15,7 +15,8 @@ PADDING_RATIO = 0.0
 
 # Label IDs for garment types
 UPPER_LABELS = [3, 4, 10]   # top, dress, scarf
-LOWER_LABELS = [4, 5, 6]    # dress, skirt, pants
+LOWER_LABELS = [5, 6]       # skirt, pants
+FEET_LABEL   = 15           # feet / footwear — used to cap lower crop
 
 # Green-out colour (RGB)
 GREEN_COLOR = (0, 255, 0)
