@@ -61,7 +61,7 @@ def _run_inference(image_bytes: bytes, pipeline_type: str) -> bytes:
     image_rgb = _decode(image_bytes)
 
     if pipeline_type in ("full", "layered"):
-        result = full.run(image_rgb, backend.face)
+        result = full.run(image_rgb, backend.face, backend.parser)
     else:
         result = garment.run(
             image_rgb, pipeline_type, backend.face, backend.parser,

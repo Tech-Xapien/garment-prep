@@ -132,7 +132,7 @@ if TEST_MODE:
 
     def _process(image_rgb, pipeline_type, face, parser):
         if pipeline_type in ("full", "layered"):
-            return full.run(image_rgb, face)
+            return full.run(image_rgb, face, parser)
         return garment.run(image_rgb, pipeline_type, face, parser)
 
 
