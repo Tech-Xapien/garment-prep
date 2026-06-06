@@ -235,6 +235,8 @@ if TEST_MODE:
     async def preprocess(
         image: UploadFile = File(..., description="Input image (JPEG/PNG/WebP)"),
         type: PipelineType = Form(..., description="Pipeline type: full, upper, lower"),
+        canvas_w: int | None = Form(None, description="canvas width override"),
+        canvas_h: int | None = Form(None, description="canvas height override"),
     ):
         """Synchronous preprocessing — returns the image directly."""
         raw = await image.read()
@@ -255,7 +257,7 @@ if TEST_MODE:
             ),
         )
 
-        result = place_on_canvas(result)
+        result = place_on_canvas(result, canvas_w, canvas_h)
         out_bytes = _encode_image(result)
         return Response(content=out_bytes, media_type="image/png")
 
