@@ -1,7 +1,7 @@
 """Canvas utility: scale and center image on a transparent-padded canvas.
 
-Default output: 768x1024 (3:4).  Configurable via CANVAS_WIDTH / CANVAS_HEIGHT env vars.
-Set both to 1024 for square output.
+Default output: 928x1664 (≈9:16).  Configurable via CANVAS_WIDTH / CANVAS_HEIGHT env vars
+or per-request via canvas_w / canvas_h.  Set both to 1024 for square output.
 
 Output is RGBA — padding regions have alpha=0 so downstream attention models
 do not attend to whitespace tokens.

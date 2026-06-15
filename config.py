@@ -38,8 +38,8 @@ CALLBACK_BACKOFF_MAX = float(os.getenv("CALLBACK_BACKOFF_MAX", "16.0"))    # cap
 CALLBACK_TIMEOUT = float(os.getenv("CALLBACK_TIMEOUT", "30.0"))            # per-request
 
 # ── Canvas / Output ──────────────────────────────────────────────────
-CANVAS_WIDTH = int(os.getenv("CANVAS_WIDTH", "768"))
-CANVAS_HEIGHT = int(os.getenv("CANVAS_HEIGHT", "1024"))
+CANVAS_WIDTH = int(os.getenv("CANVAS_WIDTH", "928"))
+CANVAS_HEIGHT = int(os.getenv("CANVAS_HEIGHT", "1664"))
 
 # ── Image download ───────────────────────────────────────────────────
 IMAGE_DOWNLOAD_TIMEOUT = float(os.getenv("IMAGE_DOWNLOAD_TIMEOUT", "30.0"))
