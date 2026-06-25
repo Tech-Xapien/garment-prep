@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from config import GREEN_COLOR
+from config import GREEN_COLOR, LR_MARGIN_RATIO
 
 
 def head_exclusion_crop(image: np.ndarray, face_bbox: dict) -> np.ndarray:
@@ -102,7 +102,7 @@ def upper_bbox_crop(
     seg_map: np.ndarray,
     upper_labels: list[int],
     lower_labels: list[int],
-    lr_margin_ratio: float = 0.10,
+    lr_margin_ratio: float = LR_MARGIN_RATIO,
 ) -> np.ndarray | None:
     """Crop upper garment from top of upper bbox to top of lower bbox.
 

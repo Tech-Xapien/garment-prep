@@ -12,6 +12,7 @@ SEGFORMER_MODEL_ID = "fashn-ai/fashn-human-parser"
 
 # ── Cropping ─────────────────────────────────────────────────────────
 PADDING_RATIO = 0.0
+LR_MARGIN_RATIO = 0.10      # left/right breathing margin (fraction of garment width)
 
 # Label IDs for garment types
 UPPER_LABELS = [3, 4, 10]   # top, dress, scarf
