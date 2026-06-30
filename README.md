@@ -198,7 +198,7 @@ All settings are environment variables (see `config.py` for current defaults).
 ### Callback
 | Var                      | Default                                       | Notes                                              |
 |--------------------------|-----------------------------------------------|----------------------------------------------------|
-| `CALLBACK_URL`           | `http://3.110.153.25:9009/v1/garment/upload`  | Default destination if request omits `callback_url` |
+| `CALLBACK_URL`           | `http://3.7.73.207:9009/v1/garment/upload`  | Default destination if request omits `callback_url` |
 | `CALLBACK_AUTH_TOKEN`    | `supersecret-internal-token`                  | Sent as `X-Internal-Auth`                          |
 | `CALLBACK_MAX_RETRIES`   | `5`                                           | Total attempts including the first                 |
 | `CALLBACK_BACKOFF_BASE`  | `1.0`                                         | Seconds; doubled each attempt                      |
