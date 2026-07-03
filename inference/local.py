@@ -8,6 +8,7 @@ the process-pool initialiser.
 from __future__ import annotations
 
 import logging
+import sys
 
 from services.face import FaceService
 from services.parser import ParserService
@@ -36,7 +37,14 @@ class LocalBackend:
 # ── Process-pool helpers ─────────────────────────────────────────────
 
 def init_worker() -> None:
-    """Called once per forked worker process to load models."""
+    """Called once per spawned worker process to load models."""
+    # Spawned workers never import main.py, so its basicConfig doesn't apply
+    # here — without a handler every INFO log in the worker is dropped.
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        stream=sys.stdout,
+    )
     global _backend  # noqa: PLW0603
     _backend = LocalBackend()
 
