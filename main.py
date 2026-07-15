@@ -32,6 +32,7 @@ from schemas import (
     PipelineType,
 )
 
+
 TEST_MODE = os.getenv("TEST_MODE", "0") == "1"
 
 if TEST_MODE:
@@ -102,6 +103,17 @@ app = FastAPI(
     title="Garment-Prep Service",
     version="2.0.0",
     lifespan=lifespan,
+)
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://0.0.0.0:3000",
+    ],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # ── Test webapp (static) ─────────────────────────────────────────────
