@@ -1,0 +1,21 @@
+.git
+.venv
+__pycache__
+**/__pycache__
+*.pyc
+ab_output
+ab_headcut.py
+engine/artifacts
+models
+webapp
+*.md
+# legacy implementation (superseded by gateway/ + triton/)
+inference
+pipelines
+services
+main.py
+queue_worker.py
+callback.py
+schemas.py
+config.py
+setup.sh

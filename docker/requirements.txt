@@ -1,0 +1,17 @@
+# Gateway runtime deps layered on the Triton NGC image (which already provides
+# CUDA, TensorRT, trtexec). No torch here — the prod image stays lean.
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+httpx==0.28.1
+pillow==11.1.0
+opencv-python-headless==4.11.0.86
+python-multipart==0.0.20
+boto3==1.35.99
+# numpy intentionally unpinned — inherit the base image's ABI (opencv/tritonclient
+# wheels are numpy-2 compatible); avoids a downgrade clash on the NGC image.
+# Must be protocol-compatible with the Triton server in the base image.
+# VERIFY on RunPod: `tritonserver --version` → pin the matching client. 25.06 == 2.59.0.
+tritonclient[grpc]==2.59.0
+# bench-only (harmless in prod):
+psutil==6.1.1
+nvidia-ml-py==12.560.30

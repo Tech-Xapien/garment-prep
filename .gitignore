@@ -4,6 +4,12 @@
 # Models (downloaded from S3 at setup time)
 models/
 
+# Build artifacts — ONNX/engine live in S3, never committed
+engine/artifacts/
+
+# A/B validation image outputs
+ab_output/
+
 # Python
 __pycache__/
 *.py[cod]
