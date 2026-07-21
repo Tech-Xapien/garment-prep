@@ -12,6 +12,26 @@ Image: `fashionx/garment-prep:0.1.0`  ·  Ports: `8000` gateway, `8002` Triton m
 
 ---
 
+## Build & push the image (from a Docker-enabled box with a fast uplink)
+
+The image is **architecture-independent** — build it anywhere with a Docker daemon
+(a RunPod pod, a build server) and it runs on both the Ada dev pod and the Blackwell
+EC2 box. Only the TRT `.plan` is arch-specific (built later, on Blackwell).
+
+```bash
+cd /workspace
+git clone -b update/efficient https://<user>:<gh-pat>@github.com/Tech-Xapien/garment-prep.git
+cd garment-prep
+docker version --format '{{.Server.Version}}'    # confirm a daemon exists first
+docker build -f docker/Dockerfile -t fashionx/garment-prep:0.1.0 -t fashionx/garment-prep:latest .
+docker login -u fashionx                          # paste a Docker Hub PAT
+docker push fashionx/garment-prep:0.1.0 && docker push fashionx/garment-prep:latest
+```
+Do **not** originate this push from a slow/home uplink — the NGC base has ~14 GB of
+single layers that Docker cannot resume if the connection drops.
+
+---
+
 ## Env vars
 
 ### A. Engine source + AWS  (the only *structural* difference between boxes)
