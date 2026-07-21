@@ -72,6 +72,33 @@ single layers that Docker cannot resume if the connection drops.
 
 ---
 
+## Build the sm_120 engine (one-time, on ANY Blackwell box)
+
+A TRT `.plan` is tied to the exact TensorRT version **and** GPU arch, so it MUST be
+built on Blackwell (sm_120) **inside our image** (guarantees TRT 10.11 == the runtime).
+Build it once, push to S3, and every EC2 boot just fetches it.
+
+```bash
+# on a Blackwell pod (or the EC2 box). Needs a Docker daemon + nvidia-container-toolkit.
+nvidia-smi -L                              # confirm: "NVIDIA RTX PRO 6000 Blackwell" (sm_120)
+docker pull fashionx/garment-prep:0.1.0
+mkdir -p /workspace/artifacts
+
+export AWS_ACCESS_KEY_ID=...  AWS_SECRET_ACCESS_KEY=...  AWS_DEFAULT_REGION=us-east-1
+docker run --rm --gpus all \
+  -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_DEFAULT_REGION \
+  -v /workspace/artifacts:/artifacts \
+  --entrypoint bash fashionx/garment-prep:0.1.0 -c '
+    set -e
+    python engine/s3.py get s3://xapien-vton-engines/garment-prep/segformer_576x384.onnx /artifacts/segformer.onnx
+    ONNX=/artifacts/segformer.onnx PLAN=/artifacts/segformer.plan MAX_BATCH=32 OPT_BATCH=16 bash engine/build_trt.sh
+    trtexec --loadEngine=/artifacts/segformer.plan --shapes=pixel_values:8x3x576x384 2>&1 | tail -15   # verify it loads on THIS gpu
+    python engine/s3.py put /artifacts/segformer.plan s3://xapien-vton-engines/garment-prep/segformer_fp16_576x384_sm120.plan
+  '
+```
+Built with `MAX_BATCH=32` so you can sweep runtime `MAX_BATCH_SIZE` up to 32 during the
+bench **without rebuilding the engine** (rebuilds are cheap, ~1-2 min, but this saves the loop).
+
 ## RunPod template
 
 - **Image:** `fashionx/garment-prep:0.1.0`
