@@ -27,6 +27,9 @@ BOTTOM_MARGIN_RATIO = 0.05
 CANVAS_WIDTH = int(os.getenv("CANVAS_WIDTH", "928"))
 CANVAS_HEIGHT = int(os.getenv("CANVAS_HEIGHT", "1664"))
 CANVAS_MARGIN_RATIO = 0.05
+# PNG is lossless, so level only trades encode-CPU for file size. Level 1 is ~2.5x
+# faster than level 6 for ~13% larger files — a big throughput win on the CPU path.
+PNG_COMPRESS_LEVEL = int(os.getenv("PNG_COMPRESS_LEVEL", "1"))
 
 # ── Concurrency / CPU knobs ──────────────────────────────────────────
 QUEUE_CONSUMERS = int(os.getenv("QUEUE_CONSUMERS", "8"))    # async pipelines in flight
