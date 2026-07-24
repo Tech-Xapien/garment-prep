@@ -31,6 +31,7 @@ COPY docker/requirements.txt /tmp/requirements.txt
 RUN PIP_CONSTRAINT= python3 -m pip install --no-cache-dir -r /tmp/requirements.txt
 
 COPY gateway/ /workspace/gateway/
+COPY worker/ /workspace/worker/
 COPY engine/ /workspace/engine/
 COPY triton/models/ /models/
 COPY docker/entrypoint.sh /entrypoint.sh

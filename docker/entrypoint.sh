@@ -42,12 +42,25 @@ tritonserver \
   --log-verbose=0 &
 TRITON_PID=$!
 
-# 4) Gateway — CPU scale via GATEWAY_WORKERS (uvicorn procs).
-uvicorn gateway.app:app --host 0.0.0.0 --port 8000 \
-  --workers "${GATEWAY_WORKERS:-1}" --no-access-log &
-UVICORN_PID=$!
+# 4) App tier — worker-pull (default) or legacy HTTP (QA/bench via RUN_MODE=http).
+APP_PIDS=""
+if [ "${RUN_MODE:-worker}" = "http" ]; then
+  uvicorn gateway.app:app --host 0.0.0.0 --port 8000 \
+    --workers "${GATEWAY_WORKERS:-1}" --no-access-log &
+  APP_PIDS="$!"
+  echo "[entrypoint] HTTP mode: uvicorn x${GATEWAY_WORKERS:-1} on :8000"
+else
+  N="${WORKER_PROCESSES:-4}"
+  for i in $(seq 1 "$N"); do
+    WORKER_INDEX="$i" python -m worker.main &
+    APP_PIDS="${APP_PIDS} $!"
+  done
+  echo "[entrypoint] worker mode: ${N} Redis-pull worker process(es)"
+fi
 
-trap 'kill ${TRITON_PID} ${UVICORN_PID} 2>/dev/null || true' TERM INT
-wait -n ${TRITON_PID} ${UVICORN_PID}
+# shellcheck disable=SC2086
+trap 'kill ${TRITON_PID} ${APP_PIDS} 2>/dev/null || true' TERM INT
+wait -n
 echo "[entrypoint] a process exited — shutting down."
-kill ${TRITON_PID} ${UVICORN_PID} 2>/dev/null || true
+# shellcheck disable=SC2086
+kill ${TRITON_PID} ${APP_PIDS} 2>/dev/null || true
