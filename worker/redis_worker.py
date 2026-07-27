@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import redis.asyncio as aioredis
@@ -37,13 +38,24 @@ class Worker:
                 raise
 
     # ── one job, start to finish ──
-    async def _handle(self, fields: dict) -> None:
+    async def _handle(self, fields: dict) -> dict:
+        """Run one job; return per-stage timings (seconds)."""
         garment_id = fields.get("garment_id", "?")
+        t: dict = {}
+        m0 = time.perf_counter()
         urls = await self.clients.mint_urls(garment_id)          # cpu_bridge
-        raw = await self.clients.download(urls["download_url"])   # S3 GET
-        png = await run_preprocessing(raw, fields.get("pipeline_type", "full"), self.triton, self.pool)
-        await self.clients.upload(urls["upload_url"], png)        # S3 PUT
+        m1 = time.perf_counter(); t["mint"] = m1 - m0
+        raw = await self.clients.download(urls["download_url"])   # S3 GET (cross-region)
+        m2 = time.perf_counter(); t["download"] = m2 - m1; t["src_kb"] = len(raw) / 1024
+        png = await run_preprocessing(                            # decode/infer/encode → fills t
+            raw, fields.get("pipeline_type", "full"), self.triton, self.pool, timings=t)
+        m3 = time.perf_counter(); t["out_kb"] = len(png) / 1024
+        await self.clients.upload(urls["upload_url"], png)        # S3 PUT (cross-region)
+        m4 = time.perf_counter(); t["upload"] = m4 - m3
         await self.clients.complete(garment_id, "completed")      # asset-service → Kafka
+        m5 = time.perf_counter(); t["complete"] = m5 - m4
+        t["total"] = m5 - m0
+        return t
 
     async def _process(self, entry_id: str, fields: dict) -> None:
         """Run one entry and apply the XACK / no-ack decision."""
@@ -59,9 +71,15 @@ class Worker:
             return
 
         try:
-            await self._handle(fields)
+            t = await self._handle(fields)
             await self._ack(entry_id)
-            logger.info("completed garment_id=%s entry=%s", garment_id, entry_id)
+            logger.info(
+                "completed garment_id=%s | mint=%.0f dl=%.0f decode=%.0f infer=%.0f "
+                "encode=%.0f up=%.0f complete=%.0f TOTAL=%.0fms | src=%.0fKB out=%.0fKB",
+                garment_id, t["mint"] * 1e3, t["download"] * 1e3, t["decode"] * 1e3,
+                t["infer"] * 1e3, t["encode"] * 1e3, t["upload"] * 1e3, t["complete"] * 1e3,
+                t["total"] * 1e3, t["src_kb"], t["out_kb"],
+            )
         except TransientError as e:
             logger.warning("transient garment_id=%s: %s (leaving for reclaim)", garment_id, e)
             # no ack

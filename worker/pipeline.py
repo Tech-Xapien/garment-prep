@@ -7,6 +7,7 @@ threadpool; the GPU call is awaited. Errors are classified for the XACK policy.
 from __future__ import annotations
 
 import asyncio
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -29,12 +30,16 @@ def _postprocess(rgb: np.ndarray, seg: np.ndarray, ptype: str) -> bytes:
 
 async def run_preprocessing(
     raw: bytes, ptype: str, triton: TritonParser, pool: ThreadPoolExecutor,
+    timings: dict | None = None,
 ) -> bytes:
+    """If `timings` is given, fills decode/infer/encode seconds (CPU vs GPU split)."""
     loop = asyncio.get_running_loop()
+    t0 = time.perf_counter()
     try:
         rgb, x = await loop.run_in_executor(pool, _decode_prep, raw)
     except Exception as e:                                   # corrupt/unsupported image
         raise DefinitiveError(f"decode/preprocess: {e}")
+    t1 = time.perf_counter()
 
     try:
         seg = await triton.infer(x)
@@ -43,8 +48,16 @@ async def run_preprocessing(
         if any(k in msg for k in ("unavailable", "connect", "timeout")):
             raise TransientError(f"triton unavailable: {e}")   # server down/restarting → retry
         raise DefinitiveError(f"triton inference: {e}")        # e.g. OOM on this input
+    t2 = time.perf_counter()
 
     try:
-        return await loop.run_in_executor(pool, _postprocess, rgb, seg, ptype)
+        png = await loop.run_in_executor(pool, _postprocess, rgb, seg, ptype)
     except Exception as e:
         raise DefinitiveError(f"postprocess: {e}")
+    t3 = time.perf_counter()
+
+    if timings is not None:
+        timings["decode"] = t1 - t0        # CPU: JPEG decode + resize
+        timings["infer"] = t2 - t1         # GPU: the actual SegFormer parse (Triton)
+        timings["encode"] = t3 - t2        # CPU: crop + canvas + PNG encode
+    return png
