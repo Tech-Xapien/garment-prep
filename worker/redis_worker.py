@@ -30,12 +30,28 @@ class Worker:
         self._stop = asyncio.Event()
 
     async def ensure_group(self) -> None:
+        # id="0": if the stream already holds un-trimmed (=unprocessed) entries — e.g.
+        # after a Redis flush/restart re-created the stream without the group — the new
+        # group picks them up instead of orphaning them. Processed entries are trimmed by
+        # the backend, so "0" never reprocesses completed work.
         try:
-            await self.redis.xgroup_create(C.STREAM_KEY, C.CONSUMER_GROUP, id="$", mkstream=True)
-            logger.info("created group %s on %s", C.CONSUMER_GROUP, C.STREAM_KEY)
+            await self.redis.xgroup_create(C.STREAM_KEY, C.CONSUMER_GROUP, id="0", mkstream=True)
+            logger.info("created group %s on %s (id=0)", C.CONSUMER_GROUP, C.STREAM_KEY)
         except aioredis.ResponseError as e:
             if "BUSYGROUP" not in str(e):
                 raise
+
+    async def _recreate_if_nogroup(self, e: Exception) -> bool:
+        """Self-heal: if the group vanished at runtime (Redis flush/restart), re-create
+        it and signal the caller to retry. Returns True if it was a NOGROUP error."""
+        if "NOGROUP" not in str(e):
+            return False
+        logger.warning("consumer group missing — recreating %s/%s", C.STREAM_KEY, C.CONSUMER_GROUP)
+        try:
+            await self.ensure_group()
+        except aioredis.RedisError as ce:
+            logger.warning("group recreate failed: %s", ce)
+        return True
 
     # ── one job, start to finish ──
     async def _handle(self, fields: dict) -> dict:
@@ -109,6 +125,8 @@ class Worker:
                     count=1, block=C.XREAD_BLOCK_MS,
                 )
             except aioredis.RedisError as e:
+                if await self._recreate_if_nogroup(e):
+                    continue                     # retry immediately against the fresh group
                 logger.warning("xreadgroup error: %s", e)
                 await asyncio.sleep(1)
                 continue
@@ -126,6 +144,9 @@ class Worker:
                     min_idle_time=C.RECLAIM_MIN_IDLE_MS, start_id=cursor, count=C.RECLAIM_COUNT,
                 )
             except aioredis.RedisError as e:
+                if await self._recreate_if_nogroup(e):
+                    cursor = "0-0"
+                    continue
                 logger.warning("xautoclaim error: %s", e)
                 cursor = "0-0"
                 continue
