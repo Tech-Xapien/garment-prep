@@ -49,7 +49,10 @@ async def main() -> None:
     pool = ThreadPoolExecutor(max_workers=C.CPU_THREADS)
     http = httpx.AsyncClient(
         timeout=httpx.Timeout(C.HTTP_TIMEOUT, connect=10.0),
-        limits=httpx.Limits(max_connections=40, max_keepalive_connections=20),
+        limits=httpx.Limits(
+            max_connections=40, max_keepalive_connections=20,
+            keepalive_expiry=C.HTTP_KEEPALIVE_EXPIRY_S,   # drop idle sockets before peer does
+        ),
         follow_redirects=True,
     )
     redis = aioredis.from_url(C.REDIS_URL, decode_responses=True)

@@ -31,3 +31,10 @@ ASSET_INTERNAL_SECRET = os.getenv("ASSET_INTERNAL_SECRET", "")   # X-Internal-Au
 
 HTTP_TIMEOUT = float(os.getenv("WORKER_HTTP_TIMEOUT", "30"))     # bridge/asset calls
 S3_TIMEOUT = float(os.getenv("WORKER_S3_TIMEOUT", "60"))         # presigned GET/PUT (cross-region)
+
+# In-process retry for connection-level faults (stale pooled keepalive sockets, connect
+# resets). Fixes them in ms on a fresh connection instead of falling to the 60s reclaim
+# path. All worker HTTP calls are idempotent, so retrying can't double-produce a garment.
+HTTP_RETRY_ATTEMPTS = int(os.getenv("WORKER_HTTP_RETRY_ATTEMPTS", "3"))
+HTTP_RETRY_BACKOFF_S = float(os.getenv("WORKER_HTTP_RETRY_BACKOFF_S", "0.2"))
+HTTP_KEEPALIVE_EXPIRY_S = float(os.getenv("WORKER_HTTP_KEEPALIVE_EXPIRY_S", "5"))
