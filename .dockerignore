@@ -1,21 +1,16 @@
+# Build context trimming. The image needs gateway/, worker/, engine/, triton/models/ and
+# docker/ — nothing else. Keep this in step with the COPY lines in docker/Dockerfile.
 .git
 .venv
 __pycache__
 **/__pycache__
 *.pyc
-ab_output
-ab_headcut.py
-engine/artifacts
-models
-webapp
+
+# Docs live in the repo, not the image.
 *.md
-# legacy implementation (superseded by gateway/ + triton/)
-inference
-pipelines
-services
-main.py
-queue_worker.py
-callback.py
-schemas.py
-config.py
-setup.sh
+
+# Build artifacts: the ONNX and the .plan come from S3 or a mount at boot, never baked in
+# (a .plan is TensorRT-version and GPU-arch specific).
+engine/artifacts
+**/*.onnx
+**/*.plan

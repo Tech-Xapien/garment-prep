@@ -105,12 +105,3 @@ would contend for the tensor cores vton needs — see
   in-container and metrics on `:8002`.
 
 Deployed: `fashionx/garment-prep:0.2.3`.
-
-## Legacy implementation
-
-`main.py`, `queue_worker.py`, `callback.py`, `config.py`, `schemas.py`, `setup.sh`,
-`inference/`, `pipelines/`, `services/` and `webapp/` are the **superseded** in-process
-implementation — a venv, a `ProcessPoolExecutor`, a YOLO head detector and a torch
-SegFormer per worker process. They are excluded from the image by `.dockerignore` and are
-**not** part of this architecture. They remain in the tree only until the branch merges,
-and should be deleted rather than consulted.

@@ -1,16 +1,13 @@
 # Virtual environment
 .venv/
 
-# Legacy weights dir (main-branch setup.sh syncs it from S3). Anchored with a leading
-# slash on purpose: an unanchored `models/` matches at ANY depth and silently ignored
-# triton/models/, which is why the Triton model repo went missing from git for weeks.
+# Stray top-level weights dir. Anchored with a leading slash on purpose: an unanchored
+# `models/` matches at ANY depth and silently ignored triton/models/, which is why the
+# Triton model repo went missing from git for weeks. Do not remove the slash.
 /models/
 
 # Build artifacts — ONNX/engine live in S3, never committed
 engine/artifacts/
-
-# A/B validation image outputs
-ab_output/
 
 # Python
 __pycache__/
