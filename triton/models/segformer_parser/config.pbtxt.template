@@ -1,0 +1,39 @@
+# Triton model config for the SegFormer parser engine.
+# Rendered from this template at container start by entrypoint.sh (envsubst), so
+# the VRAM/throughput knobs are set per-deployment WITHOUT rebuilding the image.
+#
+#   MAX_BATCH_SIZE     upper bound on a coalesced batch (must be <= engine maxShapes)
+#   INSTANCES          parallel copies of the engine on the GPU (more VRAM, more throughput)
+#   MAX_QUEUE_DELAY_US how long the dynamic batcher waits to fill a batch
+name: "segformer_parser"
+platform: "tensorrt_plan"
+default_model_filename: "model.plan"
+max_batch_size: ${MAX_BATCH_SIZE}
+
+input [
+  {
+    name: "pixel_values"
+    data_type: TYPE_UINT8
+    dims: [ 3, 576, 384 ]
+  }
+]
+
+output [
+  {
+    name: "seg"
+    data_type: TYPE_INT32
+    dims: [ 576, 384 ]
+  }
+]
+
+dynamic_batching {
+  preferred_batch_size: [ ${OPT_BATCH_SIZE} ]
+  max_queue_delay_microseconds: ${MAX_QUEUE_DELAY_US}
+}
+
+instance_group [
+  {
+    count: ${INSTANCES}
+    kind: KIND_GPU
+  }
+]
