@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Build the TensorRT engine from the exported ONNX.
 #
-# Runs INSIDE the runtime container (trtexec ships in the Triton NGC image) on the
-# RunPod RTX PRO 6000 box, so the .plan matches the exact TRT version + Blackwell
-# arch used in prod. The resulting .plan is uploaded to S3; it is NOT baked into
-# the image and is NOT portable across TRT versions or GPU architectures.
+# Runs INSIDE the runtime container (trtexec ships in the Triton NGC image) on a
+# Blackwell (sm_120) GPU, so the .plan matches the exact TRT version + arch used in
+# prod. The resulting .plan is uploaded to S3; it is NOT baked into the image and is
+# NOT portable across TRT versions or GPU architectures.
 #
 # Knobs (env): MAX_BATCH throughput/VRAM ceiling, OPT_BATCH the shape TRT tunes for.
 set -euo pipefail

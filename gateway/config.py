@@ -1,9 +1,12 @@
-"""Gateway configuration — all knobs are env-driven for RunPod sweeps → EC2 pinning.
+"""Gateway configuration — every knob is env-driven so a box is retuned without a rebuild.
 
 Two families of knobs:
   CPU  side  (gateway) : QUEUE_CONSUMERS, CPU_THREADS, GATEWAY_WORKERS(uvicorn procs)
   GPU  side  (triton)  : MAX_BATCH_SIZE, INSTANCES, MAX_QUEUE_DELAY_US (see config.pbtxt.template)
-We measure throughput vs (cores, vram) on RunPod, then set the same env on EC2.
+Size them with gateway/bench.py, then pin the values at `docker run` — see docker/DEPLOY.md.
+
+This module serves the HTTP tier and owns the shared canvas/callback settings. The
+Redis + backend-endpoint knobs live separately in worker/config.py.
 """
 import os
 

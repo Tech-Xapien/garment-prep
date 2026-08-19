@@ -1,7 +1,7 @@
 # Deferred Optimizations
 
 Throughput ideas we have **analyzed and deliberately NOT implemented yet**, with the
-reason for each. See [`PIPELINE.md`](PIPELINE.md) §5 for the profiling that motivates
+reason for each. See [`PIPELINE.md`](PIPELINE.md) §6 for the profiling that motivates
 them. All three would require **restructuring the pipeline**, so they are tracked here
 as future work rather than dropped in piecemeal.
 
@@ -45,7 +45,7 @@ confirming every consumer decodes it could silently break garments downstream.
 
 **Revisit when:** we've confirmed (or updated) every downstream reader to accept WEBP,
 and decided lossy-vs-lossless. Low code cost once that's cleared — it's a format flag in
-`imaging.encode`, gated behind an `OUTPUT_FORMAT` env.
+`imaging.encode_png`, gated behind an `OUTPUT_FORMAT` env.
 
 ---
 

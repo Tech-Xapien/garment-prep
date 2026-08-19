@@ -11,7 +11,7 @@ redis==5.2.1
 # numpy intentionally unpinned — inherit the base image's ABI (opencv/tritonclient
 # wheels are numpy-2 compatible); avoids a downgrade clash on the NGC image.
 # Must be protocol-compatible with the Triton server in the base image.
-# VERIFY on RunPod: `tritonserver --version` → pin the matching client. 25.06 == 2.59.0.
+# VERIFY in the image: `tritonserver --version` → pin the matching client. 25.06 == 2.59.0.
 tritonclient[grpc]==2.59.0
 # bench-only (harmless in prod):
 psutil==6.1.1

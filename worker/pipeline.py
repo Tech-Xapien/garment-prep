@@ -1,8 +1,10 @@
-"""run_preprocessing — the unchanged compute core, wired for the worker.
+"""run_preprocessing — the shared compute core, wired for the worker.
 
-Same steps as the old HTTP path (decode → Triton parse → crop → canvas → PNG),
-reusing gateway.imaging / gateway.crop / the Triton client. CPU stages run in a
-threadpool; the GPU call is awaited. Errors are classified for the XACK policy.
+decode → Triton parse → crop → canvas → PNG, reusing gateway.imaging / gateway.crop /
+the Triton client, so worker and HTTP modes emit byte-identical output. CPU stages run
+in a threadpool; the GPU call is awaited. Errors are classified for the XACK policy
+(see worker/redis_worker.py): TransientError is retried by reclaim, DefinitiveError is
+reported failed.
 """
 from __future__ import annotations
 

@@ -1,6 +1,7 @@
 """Redis Streams consumer: XREADGROUP loop + XAUTOCLAIM reclaim.
 
-Implements the Worker Contract from GARMENT_PREP_UPDATE_GUIDE.md. XACK happens ONLY
+Implements the Worker Contract owned by the tuck_service repo
+(docs/GARMENT_PREP_UPDATE_GUIDE.md); see docs/PIPELINE.md section 4. XACK happens ONLY
 on a definitive outcome (completed, or failed-and-reported); transient failures are
 left in the PEL so XAUTOCLAIM hands them to another worker after the idle timeout.
 """

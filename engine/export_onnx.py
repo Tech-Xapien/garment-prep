@@ -7,8 +7,8 @@ Design goals (throughput-first):
     ~0.9 MB/image instead of an 18-channel float logits tensor (~16 MB).
   * Batch axis is dynamic; spatial size is static (ideal for a single TRT profile).
 
-Run this ONCE on the RunPod build box (needs torch + transformers), then feed the
-ONNX to build_trt.sh. The ONNX itself is portable; the .plan is not.
+Run this ONCE on any machine with torch + transformers (neither is in the runtime
+image), then feed the ONNX to build_trt.sh. The ONNX is portable; the .plan is not.
 
 Usage:
     python engine/export_onnx.py --model fashn-ai/fashn-human-parser \

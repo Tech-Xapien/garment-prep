@@ -1,12 +1,15 @@
 # Garment-Prep — Pipeline Reference
 
 End-to-end walkthrough of how one garment image becomes a processed PNG, every
-step with the real code. The service is **one Docker image** running two processes:
+step with the real code. The service is **one Docker image** running two tiers:
 
-- **Gateway** (FastAPI/uvicorn) — all CPU work + orchestration.
+- **App tier** — all CPU work + orchestration. Either `worker/` (Redis-pull, **production**)
+  or `gateway/` (FastAPI, QA), selected by `RUN_MODE`.
 - **Triton** (TensorRT backend) — the single SegFormer parse on the GPU.
 
-They talk over **localhost gRPC** inside the container.
+They talk over **localhost gRPC** inside the container. The compute core is shared: both
+tiers call the same `gateway.imaging` and `gateway.crop` functions, so output is identical.
+§3 walks the pixel path using the HTTP framing; §4 covers the production framing.
 
 ```
 POST /infer ─► download ─► queue ─► consumer ─┐
@@ -34,6 +37,13 @@ gateway/                     CPU tier — runs as uvicorn (GATEWAY_WORKERS procs
   callback.py       pooled async delivery of the PNG, exp backoff + dead-letter
   bench.py          load-test harness (throughput × latency)
 
+worker/                      production app tier — Redis Streams, wraps the same compute core
+  main.py           entrypoint: one consumer process per WORKER_PROCESSES; waits for Triton
+  redis_worker.py   XREADGROUP loop + XAUTOCLAIM reclaim; the XACK policy
+  pipeline.py       run_preprocessing — decode → parse → crop → canvas → PNG, with timings
+  clients.py        cpu_bridge URL minting, S3 GET/PUT, asset-service complete
+  config.py         Redis + backend endpoint knobs (separate from gateway/config.py)
+
 engine/                      build-time — produces the artifact Triton loads
   export_onnx.py    SegFormer → ONNX with normalize + argmax fused into the graph
   build_trt.sh      ONNX → segformer.plan (trtexec --fp16, dynamic batch)
@@ -47,7 +57,7 @@ docker/
   Dockerfile        FROM nvcr.io/nvidia/tritonserver:25.06-py3 (TRT 10.11 / CUDA 12.9 / sm_120)
   entrypoint.sh     render config → provide engine (mount/S3) → launch Triton + gateway
   requirements.txt  lean gateway deps (no torch)
-  DEPLOY.md         RunPod/EC2 env contract + commands
+  DEPLOY.md         EC2 env contract + the verified run commands
 ```
 
 ---
@@ -88,7 +98,11 @@ instance_group [ { count: ${INSTANCES} kind: KIND_GPU } ]
 
 ---
 
-## 3. Request lifecycle — step by step
+## 3. Job lifecycle — step by step (HTTP framing)
+
+Steps 6–13 are the **shared compute core** and run identically in both modes. Steps 1–5
+and 14 are the HTTP framing; for the production framing see §4.
+
 
 ### Step 1 — `POST /infer` accepts the job (`gateway/app.py`)
 ```python
@@ -241,7 +255,81 @@ resp = await client.post(callback_url,
 
 ---
 
-## 4. `/preprocess` — synchronous path (QA + benchmarking)
+## 4. Production framing — the Redis worker
+
+`RUN_MODE=worker` (the default) replaces steps 1–5 and 14. There is no HTTP request and no
+callback: jobs are pulled from a Redis stream and results are pushed to S3, with completion
+reported to asset-service. Steps 6–13 above are unchanged.
+
+`worker/main.py` launches `WORKER_PROCESSES` processes, each with a distinct
+`WORKER_INDEX` → unique consumer name, all sharing the co-located Triton. Each process
+waits for the model to report ready before consuming, and **exits non-zero if it never
+does**, so the container's restart policy retries rather than idling with a dead GPU:
+
+```python
+async def _wait_for_triton(triton, tries=60):
+    for _ in range(tries):
+        try:
+            if await triton.ready(): return True
+        except Exception: pass
+        await asyncio.sleep(1.0)
+    return False
+```
+
+### One job, start to finish (`worker/redis_worker.py::_handle`)
+```python
+urls = await self.clients.mint_urls(garment_id)          # cpu_bridge → presigned GET+PUT
+raw  = await self.clients.download(urls["download_url"]) # S3 GET (cross-region)
+png  = await run_preprocessing(raw, fields["pipeline_type"], self.triton, self.pool, timings=t)
+await self.clients.upload(urls["upload_url"], png)       # S3 PUT
+await self.clients.complete(garment_id, "completed")     # asset-service → Kafka event
+```
+No AWS credentials live in the worker — S3 access is only ever via short-lived presigned
+URLs minted per job by `cpu_bridge`.
+
+### Delivery semantics: at-least-once, by way of the XACK policy
+`XACK` fires **only on a definitive outcome**. That single rule is what makes the worker
+crash-safe:
+
+| outcome | classified as | action |
+|---|---|---|
+| completed | — | `XACK` |
+| corrupt image, Triton OOM on this input | `DefinitiveError` | report `failed`, then `XACK` |
+| Redis/Triton unreachable, S3 timeout | `TransientError` | **no ack** — left in the PEL |
+| anything unexpected | `Exception` | report `failed`, `XACK` — never poison the PEL |
+
+Unacked entries stay in the pending-entries list; a `_reclaim_loop` runs `XAUTOCLAIM`
+every `RECLAIM_INTERVAL_S` and hands anything idle longer than `RECLAIM_MIN_IDLE_MS`
+(default 60 s) to a live worker. A worker killed mid-job therefore loses nothing.
+
+Classification happens in `worker/pipeline.py`, by inspecting the Triton error:
+```python
+except InferenceServerException as e:
+    msg = str(e).lower()
+    if any(k in msg for k in ("unavailable", "connect", "timeout")):
+        raise TransientError(f"triton unavailable: {e}")   # server down/restarting → retry
+    raise DefinitiveError(f"triton inference: {e}")        # e.g. OOM on this input
+```
+
+### Self-healing on a vanished group
+If Redis is flushed or restarted the consumer group can disappear under a running worker.
+Rather than spinning on `NOGROUP`, the worker recreates the group at `id=0` and retries —
+so un-trimmed (unprocessed) entries are picked up instead of orphaned. Completed entries
+are trimmed by the backend, so `id=0` never reprocesses finished work.
+
+### Observability
+One line per job, with the CPU/GPU split broken out — this is the primary signal for where
+time is going in production:
+```
+completed garment_id=ext_abc | mint=12 dl=143 decode=26 infer=31 encode=48 up=87
+  complete=19 TOTAL=366ms | src=284KB out=1782KB
+```
+While the stream is empty the worker logs **nothing**. That is idle, not stuck — confirm
+with consumer idle time (`docker/DEPLOY.md` → Verify).
+
+---
+
+## 5. `/preprocess` — synchronous path (QA + benchmarking)
 Same compute as `/infer` but the client uploads the bytes and gets the PNG back inline
 (no queue, no callback). Used by `gateway/bench.py` and for visual QA:
 ```python
@@ -254,16 +342,18 @@ async def preprocess(image: UploadFile, type: str = Form(...)):
 
 ---
 
-## 5. Concurrency & scaling model
+## 6. Concurrency & scaling model
 
-| Layer | Knob | Effect |
-|-------|------|--------|
-| uvicorn processes | `GATEWAY_WORKERS` | **primary CPU-parallelism** (throughput scales ~linearly with cores) |
-| async pipelines / worker | `QUEUE_CONSUMERS` | how many jobs are in flight feeding the GPU batch |
-| CPU threadpool / worker | `CPU_THREADS` | parallelism for decode/resize/encode (GIL-releasing) |
-| GPU batch | `MAX_BATCH_SIZE` / `OPT_BATCH_SIZE` | Triton coalesces concurrent requests; also sets VRAM |
-| batch fill wait | `MAX_QUEUE_DELAY_US` | latency ↔ batch-fill tradeoff |
-| GPU copies | `INSTANCES` | parallel engine copies (more VRAM, more throughput) |
+| Layer | Knob | Mode | Effect |
+|-------|------|------|--------|
+| app processes | `WORKER_PROCESSES` | worker | **primary CPU-parallelism** (throughput scales ~linearly with cores) |
+| app processes | `GATEWAY_WORKERS` | http | same role for uvicorn |
+| in-flight jobs / process | `WORKER_CONCURRENCY` | worker | how many jobs feed the GPU batch |
+| in-flight jobs / process | `QUEUE_CONSUMERS` | http | same role, draining the bounded queue |
+| CPU threadpool / process | `CPU_THREADS` | both | parallelism for decode/resize/encode (GIL-releasing) |
+| GPU batch | `MAX_BATCH_SIZE` / `OPT_BATCH_SIZE` | both | Triton coalesces concurrent requests; also sets VRAM. `MAX_BATCH_SIZE` must be ≤ the engine's built `MAX_BATCH` |
+| batch fill wait | `MAX_QUEUE_DELAY_US` | both | latency ↔ batch-fill tradeoff |
+| GPU copies | `INSTANCES` | both | parallel engine copies (more VRAM, more throughput) |
 
 **Measured profile (per image, CPU):** decode ~26 ms, resize small, canvas ~8 ms,
 PNG encode ~48 ms → ~100 ms total. The pipeline is **CPU-bound** — on an 8-vCPU box the

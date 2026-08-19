@@ -7,7 +7,7 @@
 #
 # The TRT engine is NOT baked in (it is TRT-version + GPU-arch specific): the
 # entrypoint fetches segformer.plan from S3 (or a mount) into the model repo at
-# boot. That is what makes this image "build once, reuse on RunPod + EC2".
+# boot. That is what makes the image portable across boxes and GPU generations.
 #
 # Build: docker build -f docker/Dockerfile -t fashionx/garment-prep:latest .
 # syntax=docker/dockerfile:1.7

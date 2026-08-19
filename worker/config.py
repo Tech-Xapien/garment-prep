@@ -1,6 +1,7 @@
 """Worker-pull configuration (Redis Streams + cpu_bridge + asset-service).
 
-Contract: /home/fashionx/projects/tuck_service/docs/GARMENT_PREP_UPDATE_GUIDE.md
+The job contract is owned by the tuck_service repo (docs/GARMENT_PREP_UPDATE_GUIDE.md);
+the consumer side is summarised in docs/PIPELINE.md section 4.
 No AWS credentials — S3 access is only via short-lived presigned URLs.
 """
 import os

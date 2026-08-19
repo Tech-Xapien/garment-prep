@@ -1,9 +1,9 @@
 """Load-test harness — measures throughput vs CPU/GPU footprint.
 
-Run on the RunPod box against the running container to find the smallest
-(cores, batch, instances) config that hits target throughput. Those numbers are
-then pinned on EC2. Uses the sync /preprocess endpoint so each request's
-completion is observable.
+Run against a container started with RUN_MODE=http to find the smallest
+(cores, batch, instances) config that hits target throughput; pin those numbers at
+`docker run`. Uses the sync /preprocess endpoint so each request's completion is
+observable.
 
 Example:
     python -m gateway.bench --host http://localhost:8000 \

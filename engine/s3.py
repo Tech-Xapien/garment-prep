@@ -3,7 +3,8 @@
     python engine/s3.py get s3://bucket/key /local/path
     python engine/s3.py put /local/path s3://bucket/key
 
-Credentials come from the environment (keys on RunPod, IAM role on EC2).
+Credentials come from the environment. NOTE: the prod EC2 instance role currently
+cannot read s3://xapien-vton-engines — pass explicit keys for now (docker/DEPLOY.md).
 """
 import sys
 import urllib.parse
