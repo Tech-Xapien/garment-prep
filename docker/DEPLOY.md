@@ -1,152 +1,263 @@
-# Deploy — RunPod (dev/tune) → EC2 (prod)
+# Deploy — EC2 (Blackwell, sm_120)
 
-**Portability principle:** the *same image* and the *same env-var names* run in both
-places. Only three things differ between RunPod and EC2:
-1. **Where the engine comes from** — a mounted file (RunPod) vs S3 (EC2).
-2. **AWS auth** — access keys (RunPod) vs instance IAM role (EC2).
-3. **The tuned numbers** — discovered by the benchmark on RunPod, pinned on EC2.
+One image serves two roles, selected by `RUN_MODE`:
 
-Everything else is identical, so a config that works on RunPod works on EC2.
+| `RUN_MODE` | app tier | used for |
+|---|---|---|
+| `worker` (default) | `WORKER_PROCESSES` × `python -m worker.main`, Redis Streams pull | production |
+| `http` | `uvicorn gateway.app:app` on `:8000` | QA, benchmarking, smoke tests |
 
-Image: `fashionx/garment-prep:0.1.0`  ·  Ports: `8000` gateway, `8002` Triton metrics.
+Both roles start Triton first (gRPC `:8001` in-container, metrics `:8002`) with the TensorRT
+SegFormer engine, then the app tier. Triton HTTP is off so the gateway owns `:8000`.
+
+Image: `fashionx/garment-prep:0.2.3` · Base: `nvcr.io/nvidia/tritonserver:25.06-py3`
+(TensorRT 10.11, CUDA 12.9, sm_120).
+
+> ⚠️ **TEMPORARY — secrets are inline below.** The real tokens are written into the `docker run`
+> commands in this file so a deploy is copy-pasteable today. This file is committed, so these
+> values are in git history. They are to be moved into an env file held outside the repo
+> (`--env-file`), and this warning removed, once a location for it is chosen.
 
 ---
 
-## Build & push the image (from a Docker-enabled box with a fast uplink)
+## Verified live deployment
 
-The image is **architecture-independent** — build it anywhere with a Docker daemon
-(a RunPod pod, a build server) and it runs on both the Ada dev pod and the Blackwell
-EC2 box. Only the TRT `.plan` is arch-specific (built later, on Blackwell).
+Both containers run on `3.219.50.111` and were verified healthy on 2026-08-19 (Triton
+`segformer_parser` READY in ~1 s, 0 errors after restart, `/preprocess` returning correct
+928×1664 RGBA for `upper` / `lower` / `full`).
+
+### Production — Redis-pull worker
 
 ```bash
-cd /workspace
-git clone -b update/efficient https://<user>:<gh-pat>@github.com/Tech-Xapien/garment-prep.git
-cd garment-prep
-docker version --format '{{.Server.Version}}'    # confirm a daemon exists first
-docker build -f docker/Dockerfile -t fashionx/garment-prep:0.1.0 -t fashionx/garment-prep:latest .
-docker login -u fashionx                          # paste a Docker Hub PAT
-docker push fashionx/garment-prep:0.1.0 && docker push fashionx/garment-prep:latest
+docker run -d --name garment-prep-worker \
+  --restart unless-stopped \
+  --gpus all \
+  -v /opt/dlami/nvme/gp/segformer.plan:/models/segformer_parser/1/model.plan:ro \
+  -e REDIS_URL=redis://13.201.242.226:6379/0 \
+  -e CPU_BRIDGE_URL=http://13.201.242.226:8080 \
+  -e ASSET_SERVICE_URL=http://13.201.242.226:9009 \
+  -e BRIDGE_TO_GPU_SECRET=123 \
+  -e ASSET_INTERNAL_SECRET=supersecret-internal-token \
+  -e WORKER_PROCESSES=4 \
+  -e WORKER_CONCURRENCY=8 \
+  -e CPU_THREADS=4 \
+  fashionx/garment-prep:0.2.3
 ```
-Do **not** originate this push from a slow/home uplink — the NGC base has ~14 GB of
-single layers that Docker cannot resume if the connection drops.
+
+No published ports: production work arrives by pulling from Redis, not over HTTP.
+`RUN_MODE` is unset, so it defaults to `worker`.
+
+### QA / benchmark — HTTP gateway on host `:8002`
+
+```bash
+docker run -d --name garment-prep-test \
+  --restart unless-stopped \
+  --gpus all \
+  -p 8002:8000 \
+  -v /opt/dlami/nvme/gp/segformer.plan:/models/segformer_parser/1/model.plan:ro \
+  -e RUN_MODE=http \
+  -e CALLBACK_URL=http://127.0.0.1:1/disabled \
+  -e GATEWAY_WORKERS=1 \
+  -e QUEUE_CONSUMERS=4 \
+  -e CPU_THREADS=2 \
+  -e MAX_BATCH_SIZE=8 \
+  -e OPT_BATCH_SIZE=4 \
+  -e INSTANCES=1 \
+  fashionx/garment-prep:0.2.3
+```
+
+`CALLBACK_URL` is deliberately pointed at a dead address so QA traffic through `/infer`
+can never deliver into a real asset-service. Use `/preprocess` (synchronous, returns the
+PNG) for smoke tests.
 
 ---
 
-## Env vars
+## How the engine is provided
 
-### A. Engine source + AWS  (the only *structural* difference between boxes)
-| Var | RunPod (dev) | EC2 (prod) | Notes |
-|-----|--------------|------------|-------|
-| `ENGINE_LOCAL_PATH` | `/artifacts/segformer.plan` | — | mounted file; **wins if set** |
-| `ENGINE_S3_URI` | (optional) | `s3://xapien-vton-engines/garment-prep/segformer_fp16_576x384_sm120.plan` | fetched at boot via boto3 |
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | set (for S3) | **omit** | EC2 uses the instance IAM role |
-| `AWS_DEFAULT_REGION` | `us-east-1` | `us-east-1` | bucket `xapien-vton-engines` lives in us-east-1 (S3 access is global) |
+`entrypoint.sh` resolves the engine in this order:
 
-> Artifacts already in S3: `s3://xapien-vton-engines/garment-prep/segformer_576x384.onnx` (ONNX, 245 MB).
-> The `.plan` is built on RunPod from that ONNX and uploaded next to it.
+1. **A file already at `/models/segformer_parser/1/model.plan`** — nothing to do.
+2. `ENGINE_LOCAL_PATH` — copied into place.
+3. `ENGINE_S3_URI` — fetched with boto3.
+4. Otherwise it exits 1.
 
-### B. GPU / Triton throughput knobs  (tune on RunPod, pin on EC2)
-| Var | Default | Meaning |
-|-----|---------|---------|
-| `MAX_BATCH_SIZE` | `16` | max coalesced batch — **must be ≤ the `MAX_BATCH` used in `build_trt.sh`** |
-| `OPT_BATCH_SIZE` | `8` | dynamic-batcher preferred size (match `OPT_BATCH` from the build) |
-| `INSTANCES` | `1` | parallel engine copies on the GPU — VRAM multiplier, throughput multiplier |
-| `MAX_QUEUE_DELAY_US` | `2000` | how long the batcher waits to fill a batch (latency ↔ batch-fill) |
+Both live containers hit case 1: the `-v` bind mount lands directly on the destination path,
+which is why neither `ENGINE_LOCAL_PATH` nor `ENGINE_S3_URI` is set. The plan is **never baked
+into the image** — it is TensorRT-version and GPU-architecture specific.
 
-### C. CPU / gateway knobs  (tune on RunPod, pin on EC2)
-| Var | Default | Meaning |
-|-----|---------|---------|
-| `GATEWAY_WORKERS` | `1` | uvicorn processes — **primary CPU-parallelism knob** |
-| `QUEUE_CONSUMERS` | `8` | async pipelines in flight per worker (feeds the GPU batch) |
-| `CPU_THREADS` | `8` | threadpool per worker for decode/resize/encode |
+Host artifacts:
 
-### D. Output + callback  (same on both boxes)
-| Var | Default |
-|-----|---------|
+| path | size | what |
+|---|---|---|
+| `/opt/dlami/nvme/gp/segformer.plan` | 132 MiB | fp16 sm_120 engine, 576×384, batch 1..16 |
+| `/opt/dlami/nvme/gp/segformer.onnx` | 245 MiB | portable ONNX the plan is built from |
+
+Also published at `s3://xapien-vton-engines/garment-prep/` as `segformer_576x384.onnx` and
+`segformer_fp16_576x384_sm120.plan`.
+
+> **Known gap:** the box's instance role (`gpu-node-role`) gets `403` on that bucket — both
+> `s3:ListBucket` and `GetObject`. The `ENGINE_S3_URI` path therefore needs explicit
+> `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`, or an IAM policy fix, before it will work
+> on this host. The bind mount is what production actually relies on.
+
+---
+
+## Env reference
+
+### Engine source
+| var | value in use | notes |
+|---|---|---|
+| `ENGINE_LOCAL_PATH` | unset | copy a mounted file into the model repo |
+| `ENGINE_S3_URI` | unset | boto3 fetch; needs credentials (see gap above) |
+| `AWS_DEFAULT_REGION` | unset | `us-east-1` for `xapien-vton-engines` |
+
+### Triton / GPU knobs — rendered into `config.pbtxt` at boot by `envsubst`
+| var | default | worker | test | meaning |
+|---|---|---|---|---|
+| `MAX_BATCH_SIZE` | `16` | `16` | `8` | max coalesced batch; **must be ≤ the `MAX_BATCH` used in `engine/build_trt.sh`** |
+| `OPT_BATCH_SIZE` | `8` | `8` | `4` | batcher's preferred size |
+| `INSTANCES` | `1` | `1` | `1` | engine copies on the GPU — multiplies VRAM and throughput |
+| `MAX_QUEUE_DELAY_US` | `2000` | default | default | how long the batcher waits to fill a batch |
+
+### App tier
+| var | default | worker | test | notes |
+|---|---|---|---|---|
+| `RUN_MODE` | `worker` | default | `http` | selects the app tier |
+| `WORKER_PROCESSES` | `4` | `4` | — | Redis consumer processes |
+| `WORKER_CONCURRENCY` | `8` | `8` | — | in-flight jobs per process |
+| `GATEWAY_WORKERS` | `1` | — | `1` | uvicorn processes |
+| `QUEUE_CONSUMERS` | `8` | — | `4` | async pipelines in flight |
+| `CPU_THREADS` | `4` worker / `8` http | `4` | `2` | read from `worker/config.py` in worker mode, `gateway/config.py` in http mode — the two defaults differ |
+
+### Worker mode — Redis + backends  *(contains secrets)*
+| var | value |
+|---|---|
+| `REDIS_URL` | `redis://13.201.242.226:6379/0` |
+| `CPU_BRIDGE_URL` | `http://13.201.242.226:8080` |
+| `ASSET_SERVICE_URL` | `http://13.201.242.226:9009` |
+| `BRIDGE_TO_GPU_SECRET` | `123` |
+| `ASSET_INTERNAL_SECRET` | `supersecret-internal-token` |
+| `GARMENT_STREAM_KEY` | default `garment:jobs` |
+| `GARMENT_CONSUMER_GROUP` | default `garment-workers` |
+
+These endpoint IPs have changed repeatedly, and `gateway/config.py` still carries a stale
+`CALLBACK_URL` default (`3.110.84.73`) plus a real `CALLBACK_AUTH_TOKEN` default
+(`supersecret-internal-token`). **Always set them explicitly at `docker run`** — do not rely
+on the committed defaults.
+
+### HTTP mode — output + callback
+| var | default |
+|---|---|
+| `CALLBACK_URL` | `http://3.110.84.73:9009/v1/garment/upload` — **stale, always override** |
+| `CALLBACK_AUTH_TOKEN` | `supersecret-internal-token` — **committed, override** |
 | `CANVAS_WIDTH` / `CANVAS_HEIGHT` | `928` / `1664` |
 | `LR_MARGIN_RATIO` | `0.01` |
-| `CALLBACK_URL` | prod callback endpoint |
-| `CALLBACK_AUTH_TOKEN` | internal token |
-| `IMAGE_URL_BASE` | prefix for scheme-less image URLs (optional) |
+| `PNG_COMPRESS_LEVEL` | `1` |
+| `IMAGE_URL_BASE` | `""` — prefix for scheme-less image URLs |
 | `IMAGE_DOWNLOAD_TIMEOUT` | `30` |
 
 ---
 
-## Build the sm_120 engine (one-time, on ANY Blackwell box)
+## Build & push the image
 
-A TRT `.plan` is tied to the exact TensorRT version **and** GPU arch, so it MUST be
-built on Blackwell (sm_120) **inside our image** (guarantees TRT 10.11 == the runtime).
-Build it once, push to S3, and every EC2 boot just fetches it.
+The image is architecture-independent; only the TRT plan is not. Build on a box with a fast
+uplink — the NGC base has ~14 GB single layers that Docker cannot resume on a dropped
+connection, so do not push from a home network. The EC2 box is a good choice: Docker's
+data-root is already on the 1.7 TB NVMe.
 
 ```bash
-# on a Blackwell pod (or the EC2 box). Needs a Docker daemon + nvidia-container-toolkit.
-nvidia-smi -L                              # confirm: "NVIDIA RTX PRO 6000 Blackwell" (sm_120)
-docker pull fashionx/garment-prep:0.1.0
-mkdir -p /workspace/artifacts
+git clone -b update/efficient https://github.com/Tech-Xapien/garment-prep.git
+cd garment-prep
+docker build -f docker/Dockerfile -t fashionx/garment-prep:<version> .
+docker login -u fashionx          # paste a Docker Hub PAT
+docker push fashionx/garment-prep:<version>
+```
 
-export AWS_ACCESS_KEY_ID=...  AWS_SECRET_ACCESS_KEY=...  AWS_DEFAULT_REGION=us-east-1
+`triton/models/` must be present in the checkout — `docker/Dockerfile` copies it and
+`entrypoint.sh` reads `config.pbtxt.template` out of it at boot. It went missing from git
+once because `.gitignore` had an unanchored `models/` pattern; the pattern is now `/models/`.
+
+## Rebuild the sm_120 engine
+
+Only when the parser model, input geometry, TensorRT version, or GPU architecture changes.
+A `.plan` is tied to the exact TRT version **and** arch, so build it on Blackwell **inside
+this image** to guarantee TRT 10.11 matches the runtime.
+
+```bash
+nvidia-smi -L        # expect: NVIDIA RTX PRO 6000 Blackwell  (sm_120)
+mkdir -p /opt/dlami/nvme/gp
+
 docker run --rm --gpus all \
-  -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_DEFAULT_REGION \
-  -v /workspace/artifacts:/artifacts \
-  --entrypoint bash fashionx/garment-prep:0.1.0 -c '
+  -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_DEFAULT_REGION=us-east-1 \
+  -v /opt/dlami/nvme/gp:/artifacts \
+  --entrypoint bash fashionx/garment-prep:0.2.3 -c '
     set -e
-    python engine/s3.py get s3://xapien-vton-engines/garment-prep/segformer_576x384.onnx /artifacts/segformer.onnx
-    ONNX=/artifacts/segformer.onnx PLAN=/artifacts/segformer.plan MAX_BATCH=32 OPT_BATCH=16 bash engine/build_trt.sh
-    trtexec --loadEngine=/artifacts/segformer.plan --shapes=pixel_values:8x3x576x384 2>&1 | tail -15   # verify it loads on THIS gpu
-    python engine/s3.py put /artifacts/segformer.plan s3://xapien-vton-engines/garment-prep/segformer_fp16_576x384_sm120.plan
+    python engine/s3.py get s3://xapien-vton-engines/garment-prep/segformer_576x384.onnx \
+      /artifacts/segformer.onnx
+    ONNX=/artifacts/segformer.onnx PLAN=/artifacts/segformer.plan \
+      MAX_BATCH=32 OPT_BATCH=16 bash engine/build_trt.sh
+    trtexec --loadEngine=/artifacts/segformer.plan \
+      --shapes=pixel_values:8x3x576x384 2>&1 | tail -15
+    python engine/s3.py put /artifacts/segformer.plan \
+      s3://xapien-vton-engines/garment-prep/segformer_fp16_576x384_sm120.plan
   '
 ```
-Built with `MAX_BATCH=32` so you can sweep runtime `MAX_BATCH_SIZE` up to 32 during the
-bench **without rebuilding the engine** (rebuilds are cheap, ~1-2 min, but this saves the loop).
 
-## RunPod template
+Build with `MAX_BATCH=32` so runtime `MAX_BATCH_SIZE` can be swept up to 32 without a
+rebuild. Regenerating the ONNX itself needs torch + transformers: `engine/export_onnx.py`.
 
-- **Image:** `fashionx/garment-prep:0.1.0`
-- **GPU:** 1× RTX PRO 6000 (Blackwell) — same arch as EC2 so the engine is portable
-- **Container disk:** 40 GB · **Volume:** 30 GB mounted at `/artifacts` (persists engine/onnx across restarts)
-- **Expose HTTP ports:** `8000` (+ `8002`)
-- **Container start command:** `sleep infinity`  ← dev pods only; the default entrypoint
-  exits without an engine, so we override it, build the engine, then launch the server.
+## Verify
 
-### Phase 1 — build the engine (no torch needed; ONNX already in S3)
 ```bash
-cd /workspace
-python engine/s3.py get s3://xapien-vton-engines/garment-prep/segformer_576x384.onnx /artifacts/segformer.onnx
-ONNX=/artifacts/segformer.onnx PLAN=/artifacts/segformer.plan \
-  MAX_BATCH=16 OPT_BATCH=8 bash engine/build_trt.sh
-# verify binding shapes trtexec prints: in uint8 [*,3,576,384], out int32 [*,576,384]
+docker logs --since "$(docker inspect garment-prep-worker --format '{{.State.StartedAt}}')" \
+  garment-prep-worker 2>&1 | grep -Ei 'entrypoint|READY|worker .* up|error'
 ```
 
-### Phase 2 — serve + benchmark
+Expect `segformer_parser | 1 | READY`, then one `worker <host>-N up: ... on
+garment:jobs/garment-workers` line per `WORKER_PROCESSES`, and no errors.
+
+End-to-end through the HTTP container — a real GPU parse:
+
 ```bash
-ENGINE_LOCAL_PATH=/artifacts/segformer.plan GATEWAY_WORKERS=4 QUEUE_CONSUMERS=8 \
-  MAX_BATCH_SIZE=16 INSTANCES=1 /entrypoint.sh &
-curl -s localhost:8000/health
-python -m gateway.bench --dir "/workspace/Lafayette Final" --type upper --concurrency 32 --n 500
-# sweep GATEWAY_WORKERS / MAX_BATCH_SIZE / INSTANCES; record img/s vs cpu-cores vs vram.
-```
-Then upload the engine so EC2 can pull it:
-```bash
-python engine/s3.py put /artifacts/segformer.plan \
-  s3://xapien-vton-engines/garment-prep/segformer_fp16_576x384_sm120.plan
+curl -s localhost:8002/health          # {"status":"ok","queue_depth":0,"consumers":4}
+curl -s -o /tmp/out.png -w '%{http_code}\n' \
+  -F image=@person.jpg -F type=upper localhost:8002/preprocess
+python3 -c "from PIL import Image; im=Image.open('/tmp/out.png'); print(im.size, im.mode)"
+# expect: 200, then (928, 1664) RGBA
 ```
 
----
+Worker mode logs nothing while the stream is empty — that is idle, not stuck. Confirm by
+checking consumer idle time is small:
 
-## EC2 prod run  (coexist with vton — cap CPU, bound VRAM)
 ```bash
-docker run -d --restart unless-stopped --name garment-prep \
-  --gpus '"device=0"' \
-  --cpus=<C_from_bench> --cpuset-cpus=<pinned-core-range> \   # CPU ceiling → won't starve vton
-  -p 8000:8000 \
-  -e ENGINE_S3_URI=s3://<bucket>/garment-prep/segformer-trt10.11-sm120.plan \
-  -e AWS_DEFAULT_REGION=us-east-1 \                            # creds from IAM role
-  -e MAX_BATCH_SIZE=<B> -e OPT_BATCH_SIZE=<O> -e INSTANCES=<N> -e MAX_QUEUE_DELAY_US=2000 \
-  -e GATEWAY_WORKERS=<W> -e QUEUE_CONSUMERS=<Q> -e CPU_THREADS=<T> \
-  -e CALLBACK_URL=<prod-callback> \
-  fashionx/garment-prep:0.1.0
+docker exec garment-prep-worker python3 -c "
+import redis, os
+r = redis.Redis.from_url(os.environ['REDIS_URL'], socket_timeout=6)
+for c in r.xinfo_consumers('garment:jobs', 'garment-workers'):
+    print(c['name'].decode(), 'idle_ms', c['idle'], 'pending', c['pending'])"
 ```
-- **CPU coexistence** is enforced by `--cpus` / `--cpuset-cpus` (values from the bench).
-- **VRAM** is bounded by `INSTANCES × batch` — tiny against 96 GB, so vton is never squeezed.
-- **GPU compute** is time-shared; keep `INSTANCES` modest. If vton latency ever regresses,
-  gate the share with CUDA MPS (`CUDA_MPS_ACTIVE_THREAD_PERCENTAGE`).
+
+Consumers belonging to the current container should show single-digit-to-low-thousands
+`idle_ms`. Large values (days) are leftover registrations from dead containers and are
+harmless; clear them with `XGROUP DELCONSUMER` if they get noisy.
+
+## Rollback
+
+`docker inspect` the container before changing it, then recreate from the saved JSON:
+
+```bash
+docker inspect garment-prep-worker > /opt/dlami/nvme/rollback-garment-prep-worker-$(date -u +%Y%m%dT%H%M%SZ).json
+docker stop garment-prep-worker && docker rm garment-prep-worker
+# re-run the previous `docker run` with the prior image tag
+```
+
+Published tags: `0.1.0`, `0.1.1`, `0.2.0`, `0.2.1`, `0.2.2`, `0.2.3`, `latest`.
+
+## Coexistence on the shared box
+
+This host also runs `vton-worker` (~42 GB VRAM) and `measurement-pipeline`. GPU compute is
+time-shared and VRAM use here is bounded by `INSTANCES × MAX_BATCH_SIZE` — small against
+96 GB, so vton is not squeezed. Neither garment-prep container currently sets a CPU ceiling;
+if CPU contention ever shows up, add `--cpus` / `--cpuset-cpus` (size them with
+`python -m gateway.bench`), and if GPU latency regresses, gate the share with CUDA MPS
+(`CUDA_MPS_ACTIVE_THREAD_PERCENTAGE`).
