@@ -241,6 +241,18 @@ Consumers belonging to the current container should show single-digit-to-low-tho
 `idle_ms`. Large values (days) are leftover registrations from dead containers and are
 harmless; clear them with `XGROUP DELCONSUMER` if they get noisy.
 
+## Changing any of this
+
+A container's environment is fixed when it is **created** — `docker restart` reuses the
+old env and will silently appear to do nothing. To change a variable you must recreate
+the container; the step-by-step is
+[`../docs/SETUP.md`](../docs/SETUP.md) Branch C. The entrypoint re-renders
+`config.pbtxt` on every start, so the Triton batching knobs retune on a recreate with no
+image rebuild and no engine re-fetch.
+
+Recreating a Redis-pull worker under load is safe: an in-flight job is simply not acked,
+and `XAUTOCLAIM` hands it to another worker after 60 s.
+
 ## Rollback
 
 `docker inspect` the container before changing it, then recreate from the saved JSON:

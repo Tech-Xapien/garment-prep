@@ -11,7 +11,8 @@ replaced at ~3 px median agreement on the face-bottom row and 0.985 crop IoU.
 
 > **Deploying:** [`docker/DEPLOY.md`](docker/DEPLOY.md) — the verified run commands.
 > **How it works, step by step:** [`docs/PIPELINE.md`](docs/PIPELINE.md).
-> **Clone to running service:** [`docs/SETUP.md`](docs/SETUP.md).
+> **Standing it up:** [`docs/SETUP.md`](docs/SETUP.md) — Branch A pull-and-run,
+> Branch B build the engine, Branch C change env and relaunch.
 
 ## Architecture
 
