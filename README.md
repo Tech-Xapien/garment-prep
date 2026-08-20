@@ -13,6 +13,50 @@ replaced at ~3 px median agreement on the face-bottom row and 0.985 crop IoU.
 > **How it works, step by step:** [`docs/PIPELINE.md`](docs/PIPELINE.md).
 > **Clone to running service:** [`docs/SETUP.md`](docs/SETUP.md).
 
+## Architecture
+
+```
+   Redis Streams (garment:jobs)            HTTP :8000
+   production job source                   QA / bench
+              │                                 │
+              ▼                                 ▼
+   ┌───────────────── one image, two app tiers ──────────────────┐
+   │  worker/                        gateway/                    │
+   │  RUN_MODE=worker  (default)     RUN_MODE=http               │
+   │  WORKER_PROCESSES × consumer    /preprocess /infer /health  │
+   │            └─────────────┬─────────────┘                    │
+   │                          ▼                                  │
+   │     shared compute core — gateway.imaging + gateway.crop    │
+   │                          │  uint8 [1,3,576,384]             │
+   │                          ▼  gRPC :8001                      │
+   │     Triton (TensorRT backend) ── segformer.plan             │
+   │                          │  int32 [576,384]                 │
+   │                          ▼                                  │
+   │     crop → 928×1664 RGBA canvas → PNG (sRGB ICC)            │
+   └─────────────────────────────────────────────────────────────┘
+
+   engine bind-mounted or pulled from S3 — never baked into the image
+   Triton metrics on :8002 · Triton HTTP off so the gateway owns :8000
+```
+
+Both tiers call the same `gateway.imaging` and `gateway.crop` functions, so the two modes
+emit byte-identical output. Only the job source and the result sink differ.
+
+**Production job flow** (`worker/`) — no HTTP in, no callback out:
+```
+  XREADGROUP ─► mint presigned ─► S3 GET ─► [core] ─► S3 PUT ─► "completed"
+       ▲                                                            │
+       │                                                            ├─► Kafka event
+       │                                                            └─► XACK
+       └──── XAUTOCLAIM reclaim (60s) ◄── no XACK ◄── transient fault
+```
+
+**QA flow** (`gateway/`):
+```
+POST /preprocess ─► [core] ─► PNG returned inline
+POST /infer      ─► bounded queue ─► [core] ─► callback POST (retries, dead-letter)
+```
+
 ## Layout
 
 ```

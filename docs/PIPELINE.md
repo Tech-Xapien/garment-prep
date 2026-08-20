@@ -11,16 +11,30 @@ They talk over **localhost gRPC** inside the container. The compute core is shar
 tiers call the same `gateway.imaging` and `gateway.crop` functions, so output is identical.
 §3 walks the pixel path using the HTTP framing; §4 covers the production framing.
 
+The two framings differ only at the edges; the boxed core is identical in both.
+
 ```
-POST /infer ─► download ─► queue ─► consumer ─┐
-                                              │  (per job)
-      ┌───────────────────────────────────────┘
-      ▼   [thread] decode+preprocess        Triton (GPU, batched)
-   rgb, uint8[1,3,576,384] ──gRPC──► segformer.plan ──► seg int32[576,384]
-      │                                                     │
-      └──────────────► [thread] crop → canvas → PNG ◄───────┘
-                                              │
-                                     callback POST (retries)
+ PRODUCTION  (RUN_MODE=worker, §4)
+   XREADGROUP ─► mint presigned ─► S3 GET ──┐                 ┌─► S3 PUT ─► complete ─► XACK
+                                            │                 │
+ QA  (RUN_MODE=http, §5)                    │                 │
+   POST /preprocess ────────────────────────┤                 ├─► PNG inline
+   POST /infer ─► download ─► queue ────────┤                 ├─► callback POST (retries)
+                                            ▼                 ▲
+              ╔═════════════════════════════════════════════════════════════════╗
+              ║  SHARED COMPUTE CORE  (steps 6-13)                              ║
+              ║                                                                 ║
+              ║   [thread] decode + INTER_AREA resize                           ║
+              ║        rgb                uint8 [1,3,576,384]                   ║
+              ║                                  │ gRPC :8001                   ║
+              ║                                  ▼                              ║
+              ║        Triton ── segformer.plan ── /255 + norm + argmax fused   ║
+              ║                                  │ (GPU, dynamic batch)         ║
+              ║                          int32 [576,384] seg map                ║
+              ║                                  ▼                              ║
+              ║   [thread] head-cut + garment bbox ─► crop ─► 928×1664 canvas   ║
+              ║            ─► PNG (sRGB ICC)                                    ║
+              ╚═════════════════════════════════════════════════════════════════╝
 ```
 
 ---
